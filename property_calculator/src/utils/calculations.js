@@ -27,24 +27,30 @@ export const calculateResults = (data) => {
   const {
     groesse,
     kaufpreis,
+    eigenkapital,
     provision,
+    kaufnebenkosten,
+    zins,
+    tilgung,
+    kaltmiete,
+    stellplatz,
     hausgeld,
     nebenkosten,
     nichtUmlegbareNebenkosten,
-    zins,
-    tilgung,
-    mieteinnahmen,
     abschreibungsrate,
     grundstueckswertAnteil
   } = values;
 
   // Calculate derived values
   const provisionBetrag = kaufpreis * (provision / 100);
-  const grunderwerbsteuer = kaufpreis * 0.065; // 6.5% Grunderwerbsteuer
-  const notar = kaufpreis * 0.02; // 2% Notarkosten
-  const gesamtkosten = kaufpreis + provisionBetrag + grunderwerbsteuer + notar;
+  const kaufnebenkostenBetrag = kaufpreis * (kaufnebenkosten / 100);
+  const gesamtkosten = kaufpreis + provisionBetrag + kaufnebenkostenBetrag;
   
-  // Calculate Nebenkosten if not provided
+  // Calculate Eigenkapital and Fremdkapital
+  const eigenkapitalBetrag = gesamtkosten * (eigenkapital / 100);
+  const fremdkapital = gesamtkosten - eigenkapitalBetrag;
+  
+  // Calculate Nebenkosten if not provided (monthly values)
   let calculatedNebenkosten = nebenkosten;
   let calculatedNichtUmlegbareNebenkosten = nichtUmlegbareNebenkosten;
   
@@ -55,36 +61,39 @@ export const calculateResults = (data) => {
     calculatedNichtUmlegbareNebenkosten = hausgeld - nebenkosten;
   }
   
+  // Convert monthly values to yearly
+  const jaehrlicheKaltmiete = kaltmiete * 12;
+  const jaehrlicheStellplatzmiete = stellplatz * 12;
+  const jaehrlicheGesamtmiete = jaehrlicheKaltmiete + jaehrlicheStellplatzmiete;
+  const jaehrlichesHausgeld = hausgeld * 12;
+  const jaehrlicheNebenkosten = calculatedNebenkosten * 12;
+  const jaehrlicheNichtUmlegbareNebenkosten = calculatedNichtUmlegbareNebenkosten * 12;
+  
   // Financing calculations
   const jahreszins = zins / 100;
   const jahrestilgung = tilgung / 100;
-  const annuitaet = gesamtkosten * (jahreszins + jahrestilgung);
+  const jaehrlicheAnnuitaet = fremdkapital * (jahreszins + jahrestilgung);
+  const monatlicheAnnuitaet = jaehrlicheAnnuitaet / 12;
   
   // Depreciation calculations
   const gebaeudewert = kaufpreis * (1 - (grundstueckswertAnteil / 100));
   const jaehrlicheAbschreibung = gebaeudewert * (abschreibungsrate / 100);
-  
-  // Monthly values
-  const monatlicheMiete = mieteinnahmen / 12;
-  const monatlicheNebenkosten = calculatedNebenkosten / 12;
-  const monatlicheNichtUmlegbareNebenkosten = calculatedNichtUmlegbareNebenkosten / 12;
-  const monatlicheAnnuitaet = annuitaet / 12;
   const monatlicheAbschreibung = jaehrlicheAbschreibung / 12;
   
   // Cash flow calculations
-  const monatlicheEinnahmen = monatlicheMiete;
-  const monatlicheAusgaben = monatlicheNichtUmlegbareNebenkosten + monatlicheAnnuitaet;
+  const monatlicheEinnahmen = kaltmiete + stellplatz;
+  const monatlicheAusgaben = calculatedNichtUmlegbareNebenkosten + monatlicheAnnuitaet;
   const monatlicherCashflow = monatlicheEinnahmen - monatlicheAusgaben;
   const jaehrlicherCashflow = monatlicherCashflow * 12;
   
   // Return calculations
-  const mietrendite = (mieteinnahmen / gesamtkosten) * 100;
+  const mietrendite = (jaehrlicheGesamtmiete / gesamtkosten) * 100;
   const cashflowRendite = (jaehrlicherCashflow / gesamtkosten) * 100;
-  const eigenkapitalrendite = cashflowRendite; // Simplified, assuming 100% equity
+  const eigenkapitalrendite = (jaehrlicherCashflow / eigenkapitalBetrag) * 100;
   
   // Quadratmeter calculations
   const kaufpreisProQm = kaufpreis / groesse;
-  const mieteProQm = monatlicheMiete / groesse;
+  const mieteProQm = kaltmiete / groesse;
   
   return {
     // Input values (for reference)
@@ -93,23 +102,30 @@ export const calculateResults = (data) => {
     // Costs
     kaufpreis,
     provisionBetrag,
-    grunderwerbsteuer,
-    notar,
+    kaufnebenkostenBetrag,
     gesamtkosten,
+    eigenkapitalBetrag,
+    fremdkapital,
     
     // Monthly values
-    monatlicheMiete,
-    monatlicheNebenkosten,
-    monatlicheNichtUmlegbareNebenkosten,
+    kaltmiete,
+    stellplatz,
+    monatlicheGesamtmiete: kaltmiete + stellplatz,
+    hausgeld,
+    monatlicheNebenkosten: calculatedNebenkosten,
+    monatlicheNichtUmlegbareNebenkosten: calculatedNichtUmlegbareNebenkosten,
     monatlicheAnnuitaet,
     monatlicheAbschreibung,
     monatlicherCashflow,
     
     // Annual values
-    jaehrlicheMiete: mieteinnahmen,
-    jaehrlicheNebenkosten: calculatedNebenkosten,
-    jaehrlicheNichtUmlegbareNebenkosten: calculatedNichtUmlegbareNebenkosten,
-    jaehrlicheAnnuitaet: annuitaet,
+    jaehrlicheKaltmiete,
+    jaehrlicheStellplatzmiete,
+    jaehrlicheGesamtmiete,
+    jaehrlichesHausgeld,
+    jaehrlicheNebenkosten,
+    jaehrlicheNichtUmlegbareNebenkosten,
+    jaehrlicheAnnuitaet,
     jaehrlicheAbschreibung,
     jaehrlicherCashflow,
     

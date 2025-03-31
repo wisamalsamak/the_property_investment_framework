@@ -6,13 +6,16 @@ const StepForm = ({ onComplete }) => {
   const [formData, setFormData] = useState({
     groesse: '',
     kaufpreis: '',
+    eigenkapital: '20',
     provision: '3.57',
+    kaufnebenkosten: '8.5',
+    zins: '3.5',
+    tilgung: '2',
+    kaltmiete: '',
+    stellplatz: '0',
     hausgeld: '',
     nebenkosten: '',
     nichtUmlegbareNebenkosten: '',
-    zins: '3.5',
-    tilgung: '2',
-    mieteinnahmen: '',
     abschreibungsrate: '2',
     grundstueckswertAnteil: '20'
   });
@@ -46,7 +49,7 @@ const StepForm = ({ onComplete }) => {
         const value = formData[field];
         
         // Required fields
-        if (['groesse', 'kaufpreis', 'mieteinnahmen'].includes(field) && !value) {
+        if (['groesse', 'kaufpreis', 'kaltmiete'].includes(field) && !value) {
           newErrors[field] = 'Dieses Feld ist erforderlich';
         }
         
@@ -58,6 +61,11 @@ const StepForm = ({ onComplete }) => {
         // Positive values
         if (parseFloat(value) < 0) {
           newErrors[field] = 'Der Wert muss positiv sein';
+        }
+        
+        // Eigenkapital validation (0-100%)
+        if (field === 'eigenkapital' && (parseFloat(value) < 0 || parseFloat(value) > 100)) {
+          newErrors[field] = 'Der Wert muss zwischen 0 und 100 liegen';
         }
       }
     });
@@ -71,12 +79,12 @@ const StepForm = ({ onComplete }) => {
         return formData.groesse && formData.kaufpreis && 
                !errors.groesse && !errors.kaufpreis;
       case 2:
-        return !errors.provision && !errors.hausgeld && 
-               !errors.nebenkosten && !errors.nichtUmlegbareNebenkosten;
+        return !errors.eigenkapital && !errors.provision && 
+               !errors.kaufnebenkosten && !errors.zins && !errors.tilgung;
       case 3:
-        return formData.mieteinnahmen && !errors.mieteinnahmen && 
-               !errors.zins && !errors.tilgung && 
-               !errors.abschreibungsrate && !errors.grundstueckswertAnteil;
+        return formData.kaltmiete && !errors.kaltmiete && 
+               !errors.stellplatz && !errors.hausgeld && 
+               !errors.nebenkosten && !errors.nichtUmlegbareNebenkosten;
       default:
         return true;
     }
@@ -124,9 +132,9 @@ const StepForm = ({ onComplete }) => {
       case 1:
         return ['groesse', 'kaufpreis'];
       case 2:
-        return ['provision', 'hausgeld', 'nebenkosten', 'nichtUmlegbareNebenkosten'];
+        return ['eigenkapital', 'provision', 'kaufnebenkosten', 'zins', 'tilgung'];
       case 3:
-        return ['mieteinnahmen', 'zins', 'tilgung', 'abschreibungsrate', 'grundstueckswertAnteil'];
+        return ['kaltmiete', 'stellplatz', 'hausgeld', 'nebenkosten', 'nichtUmlegbareNebenkosten', 'abschreibungsrate', 'grundstueckswertAnteil'];
       default:
         return [];
     }
@@ -180,7 +188,20 @@ const StepForm = ({ onComplete }) => {
       case 2:
         return (
           <div className="step">
-            <h3>Schritt 2: Kosten und Nebenkosten</h3>
+            <h3>Schritt 2: Finanzierung</h3>
+            
+            <InputWithLabel
+              label="Eigenkapital"
+              name="eigenkapital"
+              value={formData.eigenkapital}
+              onChange={handleChange}
+              tooltip="Eigenkapitalanteil in Prozent des Kaufpreises"
+              unit="%"
+              min="0"
+              max="100"
+              step="1"
+              error={errors.eigenkapital}
+            />
             
             <InputWithLabel
               label="Provision"
@@ -195,65 +216,15 @@ const StepForm = ({ onComplete }) => {
             />
             
             <InputWithLabel
-              label="Hausgeld"
-              name="hausgeld"
-              value={formData.hausgeld}
+              label="Kaufnebenkosten"
+              name="kaufnebenkosten"
+              value={formData.kaufnebenkosten}
               onChange={handleChange}
-              tooltip="Jährliche Kosten für die Verwaltung und Instandhaltung des Gebäudes"
-              unit="€/Jahr"
+              tooltip="Grunderwerbsteuer, Notar, etc. in Prozent des Kaufpreises"
+              unit="%"
               min="0"
-              error={errors.hausgeld}
-            />
-            
-            <InputWithLabel
-              label="Nebenkosten"
-              name="nebenkosten"
-              value={formData.nebenkosten}
-              onChange={handleChange}
-              tooltip="Jährliche umlegbare Nebenkosten (wenn leer, wird 60% des Hausgelds angenommen)"
-              unit="€/Jahr"
-              min="0"
-              error={errors.nebenkosten}
-            />
-            
-            <InputWithLabel
-              label="Nicht umlegbare Nebenkosten"
-              name="nichtUmlegbareNebenkosten"
-              value={formData.nichtUmlegbareNebenkosten}
-              onChange={handleChange}
-              tooltip="Jährliche nicht umlegbare Nebenkosten (wenn leer, wird Hausgeld - Nebenkosten angenommen)"
-              unit="€/Jahr"
-              min="0"
-              error={errors.nichtUmlegbareNebenkosten}
-            />
-            
-            <div className="step-navigation">
-              <button onClick={prevStep} className="secondary">Zurück</button>
-              <button 
-                onClick={nextStep}
-                disabled={!isStepValid(2)}
-              >
-                Weiter
-              </button>
-            </div>
-          </div>
-        );
-        
-      case 3:
-        return (
-          <div className="step">
-            <h3>Schritt 3: Finanzierung und Mieteinnahmen</h3>
-            
-            <InputWithLabel
-              label="Mieteinnahmen"
-              name="mieteinnahmen"
-              value={formData.mieteinnahmen}
-              onChange={handleChange}
-              tooltip="Jährliche Mieteinnahmen (Kaltmiete)"
-              unit="€/Jahr"
-              min="0"
-              required={true}
-              error={errors.mieteinnahmen}
+              step="0.1"
+              error={errors.kaufnebenkosten}
             />
             
             <div className="form-row">
@@ -281,6 +252,81 @@ const StepForm = ({ onComplete }) => {
                 error={errors.tilgung}
               />
             </div>
+            
+            <div className="step-navigation">
+              <button onClick={prevStep} className="secondary">Zurück</button>
+              <button 
+                onClick={nextStep}
+                disabled={!isStepValid(2)}
+              >
+                Weiter
+              </button>
+            </div>
+          </div>
+        );
+        
+      case 3:
+        return (
+          <div className="step">
+            <h3>Schritt 3: Miete & Kosten</h3>
+            
+            <div className="form-row">
+              <InputWithLabel
+                label="Kaltmiete"
+                name="kaltmiete"
+                value={formData.kaltmiete}
+                onChange={handleChange}
+                tooltip="Monatliche Kaltmiete ohne Nebenkosten"
+                unit="€/Monat"
+                min="0"
+                required={true}
+                error={errors.kaltmiete}
+              />
+              
+              <InputWithLabel
+                label="Stellplatz"
+                name="stellplatz"
+                value={formData.stellplatz}
+                onChange={handleChange}
+                tooltip="Monatliche Mieteinnahmen für Stellplatz/Garage (falls vorhanden)"
+                unit="€/Monat"
+                min="0"
+                error={errors.stellplatz}
+              />
+            </div>
+            
+            <InputWithLabel
+              label="Hausgeld"
+              name="hausgeld"
+              value={formData.hausgeld}
+              onChange={handleChange}
+              tooltip="Monatliches Hausgeld (bei Eigentumswohnungen)"
+              unit="€/Monat"
+              min="0"
+              error={errors.hausgeld}
+            />
+            
+            <InputWithLabel
+              label="Nebenkosten"
+              name="nebenkosten"
+              value={formData.nebenkosten}
+              onChange={handleChange}
+              tooltip="Monatliche umlegbare Nebenkosten (wenn leer, wird 60% des Hausgelds angenommen)"
+              unit="€/Monat"
+              min="0"
+              error={errors.nebenkosten}
+            />
+            
+            <InputWithLabel
+              label="Nicht umlegbare Nebenkosten"
+              name="nichtUmlegbareNebenkosten"
+              value={formData.nichtUmlegbareNebenkosten}
+              onChange={handleChange}
+              tooltip="Monatliche nicht umlegbare Nebenkosten (wenn leer, wird Hausgeld - Nebenkosten angenommen)"
+              unit="€/Monat"
+              min="0"
+              error={errors.nichtUmlegbareNebenkosten}
+            />
             
             <div className="form-row">
               <InputWithLabel

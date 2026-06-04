@@ -486,7 +486,7 @@ const Portfolio = () => {
     setLiveLoading(true);
     setLiveError(null);
     try {
-      const live = await fetchLiveListings(city, { proxyBase, limit: liveLimit });
+      const live = await fetchLiveListings(city, { proxyBase, limit: Number(liveLimit) || 24 });
       setListingsByCity((prev) => ({ ...prev, [cityId]: live }));
       setLiveLoadedCities((prev) => ({ ...prev, [cityId]: true }));
     } catch (err) {
@@ -554,15 +554,21 @@ const Portfolio = () => {
 
         <div className="live-count">
           <label htmlFor="liveLimit">Anzahl</label>
-          <select
+          <input
             id="liveLimit"
+            type="number"
+            inputMode="numeric"
+            min="1"
+            max="100"
             value={liveLimit}
-            onChange={(e) => setLiveLimit(Number(e.target.value))}
-          >
-            {[5, 10, 15, 20, 24, 30, 40, 50].map((n) => (
-              <option key={n} value={n}>{n}</option>
-            ))}
-          </select>
+            onChange={(e) =>
+              setLiveLimit(
+                e.target.value === ''
+                  ? ''
+                  : Math.max(1, Math.min(100, Math.floor(Number(e.target.value)) || 1))
+              )
+            }
+          />
         </div>
 
         <div className="source-control">
@@ -570,7 +576,7 @@ const Portfolio = () => {
             {isLive ? '● Live (immowelt)' : '○ Kuratierte Daten'}
           </span>
           <button type="button" onClick={handleLoadLive} disabled={liveLoading}>
-            {liveLoading ? 'Lade …' : `Live laden (${city.name}, ${liveLimit})`}
+            {liveLoading ? 'Lade …' : `Live laden (${city.name}, ${liveLimit || 1})`}
           </button>
           {isLive && (
             <button type="button" className="secondary" onClick={handleResetCity}>
@@ -833,13 +839,13 @@ const Portfolio = () => {
                     {listing.zimmer ? ` · ${listing.zimmer} Zi.` : ''}
                   </span>
                 </td>
-                <td className="num">
+                <td className="num" data-label="Kaufpreis">
                   <EditableCell
                     value={listing.kaufpreis}
                     onChange={(v) => handleListingFieldChange(listing.id, 'kaufpreis', v)}
                   />
                 </td>
-                <td className="num">
+                <td className="num col-hide-mobile" data-label="Miete (kalt)">
                   <EditableCell
                     value={listing.kaltmiete}
                     placeholder={`≈ ${Math.round(results.kaltmiete)}`}
@@ -847,7 +853,7 @@ const Portfolio = () => {
                   />
                   <span className="cell-sub">{mieteEigen ? 'eigene Angabe' : 'geschätzt'}</span>
                 </td>
-                <td className="num">
+                <td className="num col-hide-mobile" data-label="Hausgeld">
                   <EditableCell
                     value={listing.hausgeld}
                     placeholder={`≈ ${Math.round(results.hausgeld)}`}
@@ -855,15 +861,15 @@ const Portfolio = () => {
                   />
                   <span className="cell-sub">{hausgeldEigen ? 'eigene Angabe' : 'geschätzt'}</span>
                 </td>
-                <td className="num">{formatCurrency(results.kaufpreisProQm)}</td>
-                <td className="num">{formatPercent(results.mietrendite)}</td>
-                <td className={`num ${cashflow >= 0 ? 'pos' : 'neg'}`}>
+                <td className="num col-hide-mobile" data-label="€/m²">{formatCurrency(results.kaufpreisProQm)}</td>
+                <td className="num" data-label="Mietrendite">{formatPercent(results.mietrendite)}</td>
+                <td className={`num ${cashflow >= 0 ? 'pos' : 'neg'}`} data-label="Cashflow/Monat">
                   {formatCurrency(cashflow)}
                 </td>
-                <td className="num">
+                <td className="num" data-label="Score">
                   <span className={`score-pill ${empfehlung.color}`}>{score}</span>
                 </td>
-                <td>
+                <td data-label="Empfehlung">
                   <span className={`empfehlung ${empfehlung.color}`}>{empfehlung.label}</span>
                   <span className="cell-sub">{empfehlung.kurz}</span>
                 </td>

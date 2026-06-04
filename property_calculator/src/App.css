@@ -724,6 +724,14 @@ select:focus {
   min-width: 80px;
 }
 
+.live-count input {
+  padding: 9px 12px;
+  border: 1px solid #ccd6e0;
+  border-radius: 6px;
+  font-size: 15px;
+  width: 84px;
+}
+
 .source-control {
   display: flex;
   align-items: center;
@@ -926,6 +934,110 @@ select:focus {
 
 .portfolio-table td.pos { color: #27ae60; }
 .portfolio-table td.neg { color: #e74c3c; }
+
+/* On phones the 10-column table forces a lot of horizontal (and vertical)
+   scrolling. Collapse each row into a compact card showing only the key KPIs;
+   the secondary, editable columns stay reachable inside the Details panel. */
+@media (max-width: 768px) {
+  .portfolio-table-wrap {
+    overflow-x: visible;
+  }
+
+  .portfolio-table thead {
+    display: none;
+  }
+
+  .portfolio-table,
+  .portfolio-table tbody,
+  .portfolio-table tr,
+  .portfolio-table td {
+    display: block;
+    width: 100%;
+  }
+
+  .portfolio-table tr {
+    border: 1px solid #e6edf2;
+    border-radius: 10px;
+    padding: 10px 14px;
+    margin-bottom: 12px;
+    background: #fff;
+  }
+
+  .portfolio-table tr.is-best {
+    border-color: #abe0c2;
+  }
+
+  .portfolio-table td {
+    border-bottom: none;
+    padding: 5px 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    text-align: right;
+  }
+
+  .portfolio-table td::before {
+    content: attr(data-label);
+    font-size: 12px;
+    font-weight: 600;
+    color: #7b8a96;
+    text-align: left;
+  }
+
+  /* Title row: full width, prominent, no label. */
+  .portfolio-table td:first-child {
+    display: block;
+    text-align: left;
+    font-size: 15px;
+    border-bottom: 1px solid #eef2f5;
+    padding-bottom: 8px;
+    margin-bottom: 4px;
+  }
+
+  .portfolio-table td:first-child::before {
+    content: none;
+  }
+
+  /* Hide the heavier columns to keep cards short and scannable. */
+  .portfolio-table td.col-hide-mobile {
+    display: none;
+  }
+
+  .portfolio-table .cell-sub {
+    display: inline;
+    margin: 0;
+  }
+
+  .portfolio-table td:first-child .cell-sub {
+    display: block;
+    margin-top: 2px;
+  }
+
+  .portfolio-table td.row-actions {
+    justify-content: flex-end;
+    gap: 18px;
+    padding-top: 8px;
+    border-top: 1px solid #eef2f5;
+    margin-top: 4px;
+  }
+
+  .portfolio-table td.row-actions::before {
+    content: none;
+  }
+
+  .portfolio-table .detail-panel-row > td {
+    padding: 0 !important;
+  }
+
+  .portfolio-table .detail-panel-row > td::before {
+    content: none;
+  }
+
+  .cell-input {
+    width: 110px;
+  }
+}
 
 .cell-input {
   width: 92px;

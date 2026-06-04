@@ -343,18 +343,19 @@ const Portfolio = () => {
   const [liveError, setLiveError] = useState(null);
   const [liveLoadedCities, setLiveLoadedCities] = useState(persisted.liveLoadedCities || {});
   const [proxyBase] = useState(persisted.proxyBase || DEFAULT_PROXY);
+  const [liveLimit, setLiveLimit] = useState(persisted.liveLimit || 24);
 
   // Persist the portfolio so other tabs (and reloads) can restore it.
   useEffect(() => {
     try {
       window.localStorage.setItem(
         STORAGE_KEY,
-        JSON.stringify({ cityId, assumptions, listingsByCity, liveLoadedCities, proxyBase })
+        JSON.stringify({ cityId, assumptions, listingsByCity, liveLoadedCities, proxyBase, liveLimit })
       );
     } catch {
       /* storage full or unavailable – ignore */
     }
-  }, [cityId, assumptions, listingsByCity, liveLoadedCities, proxyBase]);
+  }, [cityId, assumptions, listingsByCity, liveLoadedCities, proxyBase, liveLimit]);
 
   // When opened via a deep link (new tab), scroll the expanded apartment row
   // into view so its detail panel is immediately visible.
@@ -485,7 +486,7 @@ const Portfolio = () => {
     setLiveLoading(true);
     setLiveError(null);
     try {
-      const live = await fetchLiveListings(city, { proxyBase });
+      const live = await fetchLiveListings(city, { proxyBase, limit: liveLimit });
       setListingsByCity((prev) => ({ ...prev, [cityId]: live }));
       setLiveLoadedCities((prev) => ({ ...prev, [cityId]: true }));
     } catch (err) {
@@ -551,12 +552,25 @@ const Portfolio = () => {
           </select>
         </div>
 
+        <div className="live-count">
+          <label htmlFor="liveLimit">Anzahl</label>
+          <select
+            id="liveLimit"
+            value={liveLimit}
+            onChange={(e) => setLiveLimit(Number(e.target.value))}
+          >
+            {[5, 10, 15, 20, 24, 30, 40, 50].map((n) => (
+              <option key={n} value={n}>{n}</option>
+            ))}
+          </select>
+        </div>
+
         <div className="source-control">
           <span className={`source-badge ${isLive ? 'live' : 'curated'}`}>
             {isLive ? '● Live (immowelt)' : '○ Kuratierte Daten'}
           </span>
           <button type="button" onClick={handleLoadLive} disabled={liveLoading}>
-            {liveLoading ? 'Lade …' : `Live laden (${city.name})`}
+            {liveLoading ? 'Lade …' : `Live laden (${city.name}, ${liveLimit})`}
           </button>
           {isLive && (
             <button type="button" className="secondary" onClick={handleResetCity}>

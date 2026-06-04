@@ -1,2 +1,6 @@
 # public/_redirects
+# _redirects rules are processed BEFORE netlify.toml [[redirects]], so the proxy
+# route MUST be listed here ahead of the SPA catch-all - otherwise /api/immowelt
+# is swallowed by /* and returns index.html instead of the serverless function.
+/api/immowelt  /.netlify/functions/immowelt  200
 /* /index.html 200

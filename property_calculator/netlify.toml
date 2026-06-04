@@ -1,0 +1,26 @@
+# Netlify build & routing config for the property calculator.
+# Base directory is `property_calculator` (set in the Netlify site settings),
+# so all paths here are relative to it.
+
+[build]
+  command = "npm run build"
+  publish = "build"
+  functions = "netlify/functions"
+
+# Node 18+ is required for global `fetch` in both the build and the function
+# runtime. Pin it so an older Netlify default cannot break the proxy.
+[build.environment]
+  NODE_VERSION = "20"
+
+# Route the same-origin proxy endpoint used by the app to the serverless
+# function. This MUST come before the SPA catch-all so it is matched first.
+[[redirects]]
+  from = "/api/immowelt"
+  to = "/.netlify/functions/immowelt"
+  status = 200
+
+# Single-page-app fallback for everything else.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

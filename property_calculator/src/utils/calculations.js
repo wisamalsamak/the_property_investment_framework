@@ -1,4 +1,6 @@
 // Helper functions for calculations
+import { berechneNetto, berechneSteuerersparnis } from './germanTax';
+
 export const formatCurrency = (value) => {
   return new Intl.NumberFormat('de-DE', { 
     style: 'currency', 
@@ -14,6 +16,154 @@ export const formatPercent = (value) => {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2
   }).format(value / 100);
+};
+
+// Rating thresholds for each criterion used in the final verdict.
+// These are intentionally exposed so the UI can show *why* a verdict was reached.
+export const VERDICT_CRITERIA = [
+  {
+    key: 'mietrendite',
+    label: 'Mietrendite (Brutto)',
+    description: 'Jährliche Mieteinnahmen im Verhältnis zur Gesamtinvestition. Faustregel: höher ist besser.',
+    unit: '%',
+    weight: 2,
+    good: 5,      // >= 5 %  -> gut
+    neutral: 3.5, // 3.5-5 % -> neutral, darunter schwach
+    goodText: 'Gute Brutto-Mietrendite (≥ 5 %).',
+    neutralText: 'Durchschnittliche Mietrendite (3,5 – 5 %).',
+    poorText: 'Niedrige Mietrendite (< 3,5 %).'
+  },
+  {
+    key: 'monatlicherCashflow',
+    label: 'Monatlicher Cashflow',
+    description: 'Was nach Zins, Tilgung und nicht umlegbaren Kosten monatlich übrig bleibt.',
+    unit: '€',
+    weight: 3,
+    good: 0,      // >= 0 €   -> gut (trägt sich selbst)
+    neutral: -100, // -100-0 € -> neutral, darunter schwach
+    goodText: 'Positiver Cashflow – die Immobilie trägt sich selbst.',
+    neutralText: 'Leicht negativer Cashflow – geringe monatliche Zuzahlung nötig.',
+    poorText: 'Deutlich negativer Cashflow – erhebliche monatliche Zuzahlung nötig.'
+  },
+  {
+    key: 'eigenkapitalrendite',
+    label: 'Eigenkapitalrendite',
+    description: 'Cashflow im Verhältnis zum eingesetzten Eigenkapital (Hebelwirkung).',
+    unit: '%',
+    weight: 2,
+    good: 6,      // >= 6 %  -> gut
+    neutral: 2,   // 2-6 %   -> neutral, darunter schwach
+    goodText: 'Starke Eigenkapitalrendite (≥ 6 %).',
+    neutralText: 'Moderate Eigenkapitalrendite (2 – 6 %).',
+    poorText: 'Schwache Eigenkapitalrendite (< 2 %).'
+  },
+  {
+    key: 'kaufpreisFaktor',
+    label: 'Kaufpreisfaktor',
+    description: 'Kaufpreis geteilt durch Jahres-Kaltmiete. Niedriger ist günstiger eingekauft.',
+    unit: 'x',
+    weight: 1,
+    lowerIsBetter: true,
+    good: 22,     // <= 22  -> gut
+    neutral: 28,  // 22-28  -> neutral, darüber schwach
+    goodText: 'Günstiger Einkaufsfaktor (≤ 22 Jahresmieten).',
+    neutralText: 'Marktüblicher Faktor (22 – 28 Jahresmieten).',
+    poorText: 'Hoher Kaufpreisfaktor (> 28 Jahresmieten).'
+  }
+];
+
+// Map a numeric rating to a label, color and 0/1/2 point score.
+const RATING_LEVELS = {
+  good: { points: 2, label: 'Gut', color: 'good' },
+  neutral: { points: 1, label: 'Neutral', color: 'neutral' },
+  poor: { points: 0, label: 'Schwach', color: 'poor' }
+};
+
+const rateCriterion = (criterion, value) => {
+  let level;
+  if (criterion.lowerIsBetter) {
+    if (value <= criterion.good) level = 'good';
+    else if (value <= criterion.neutral) level = 'neutral';
+    else level = 'poor';
+  } else {
+    if (value >= criterion.good) level = 'good';
+    else if (value >= criterion.neutral) level = 'neutral';
+    else level = 'poor';
+  }
+  const meta = RATING_LEVELS[level];
+  const text =
+    level === 'good' ? criterion.goodText
+    : level === 'neutral' ? criterion.neutralText
+    : criterion.poorText;
+  return { level, ...meta, text };
+};
+
+// Build a transparent verdict: an overall score plus a per-criterion breakdown
+// that explains exactly how the result was reached.
+export const calculateVerdict = (results) => {
+  // Base criteria, plus an after-tax cashflow criterion when tax data exists.
+  const criteria = [...VERDICT_CRITERIA];
+  if (results.steuer && results.steuer.hasTaxData) {
+    criteria.splice(1, 0, {
+      key: 'nachSteuerCashflowMonatlich',
+      label: 'Cashflow nach Steuern (Monat)',
+      description: 'Monatlicher Cashflow inkl. Steuerersparnis aus Zinsen und AfA.',
+      unit: '€',
+      weight: 3,
+      good: 0,
+      neutral: -100,
+      goodText: 'Nach Steuern positiver Cashflow – die Steuervorteile tragen das Objekt.',
+      neutralText: 'Nach Steuern nur leicht negativ – geringe Zuzahlung trotz Steuervorteil.',
+      poorText: 'Auch nach Steuern deutlich negativ – hohe Zuzahlung nötig.'
+    });
+  }
+
+  const breakdown = criteria.map((criterion) => {
+    const value = results[criterion.key];
+    const rating = rateCriterion(criterion, value);
+    return {
+      key: criterion.key,
+      label: criterion.label,
+      description: criterion.description,
+      unit: criterion.unit,
+      value,
+      weight: criterion.weight,
+      lowerIsBetter: !!criterion.lowerIsBetter,
+      thresholds: { good: criterion.good, neutral: criterion.neutral },
+      level: rating.level,
+      ratingLabel: rating.label,
+      color: rating.color,
+      points: rating.points,
+      maxPoints: 2,
+      weightedPoints: rating.points * criterion.weight,
+      maxWeightedPoints: 2 * criterion.weight,
+      explanation: rating.text
+    };
+  });
+
+  const earned = breakdown.reduce((sum, c) => sum + c.weightedPoints, 0);
+  const max = breakdown.reduce((sum, c) => sum + c.maxWeightedPoints, 0);
+  const score = max > 0 ? Math.round((earned / max) * 100) : 0;
+
+  let rating, summary;
+  if (score >= 80) {
+    rating = 'Sehr gut';
+    summary = 'Die Kennzahlen sind durchweg stark – ein attraktives Investment.';
+  } else if (score >= 60) {
+    rating = 'Gut';
+    summary = 'Solide Kennzahlen mit leichten Schwächen – grundsätzlich attraktiv.';
+  } else if (score >= 40) {
+    rating = 'Neutral';
+    summary = 'Gemischtes Bild – einzelne Kennzahlen sollten verbessert werden.';
+  } else if (score >= 20) {
+    rating = 'Schwach';
+    summary = 'Mehrere Kennzahlen sind unterdurchschnittlich – kritisch prüfen.';
+  } else {
+    rating = 'Ungünstig';
+    summary = 'Die Kennzahlen sprechen aktuell gegen das Investment.';
+  }
+
+  return { score, earned, max, rating, summary, breakdown };
 };
 
 export const calculateResults = (data) => {
@@ -74,6 +224,11 @@ export const calculateResults = (data) => {
   const jahrestilgung = tilgung / 100;
   const jaehrlicheAnnuitaet = fremdkapital * (jahreszins + jahrestilgung);
   const monatlicheAnnuitaet = jaehrlicheAnnuitaet / 12;
+
+  // Split annuity into interest (tax-deductible) and principal (not deductible)
+  const jaehrlicheZinsen = fremdkapital * jahreszins;
+  const monatlicheZinsen = jaehrlicheZinsen / 12;
+  const jaehrlicheTilgung = fremdkapital * jahrestilgung;
   
   // Depreciation calculations
   const gebaeudewert = kaufpreis * (1 - (grundstueckswertAnteil / 100));
@@ -94,8 +249,50 @@ export const calculateResults = (data) => {
   // Quadratmeter calculations
   const kaufpreisProQm = kaufpreis / groesse;
   const mieteProQm = kaltmiete / groesse;
-  
-  return {
+
+  // Kaufpreisfaktor: how many annual cold rents the purchase price equals
+  const kaufpreisFaktor = jaehrlicheGesamtmiete > 0 ? kaufpreis / jaehrlicheGesamtmiete : 0;
+
+  // ===== Brutto-Netto & tax saving from the property =====
+  const gehaltEingabe = parseFloat(data.bruttoJahresgehalt) || 0;
+  // The salary can be entered monthly or yearly.
+  const brutto = data.gehaltsperiode === 'monat' ? gehaltEingabe * 12 : gehaltEingabe;
+  const hasTaxData = brutto > 0;
+  let steuer = { hasTaxData: false };
+
+  if (hasTaxData) {
+    const truthy = (v) => v === true || v === 'true' || v === 'ja';
+    const netto = berechneNetto({
+      brutto,
+      alter: parseFloat(data.alter) || 0,
+      bundesland: data.bundesland || 'Nordrhein-Westfalen',
+      steuerklasse: data.steuerklasse || '1',
+      kirchensteuerpflichtig: truthy(data.kirchensteuerpflichtig),
+      kinder: parseFloat(data.kinder) || 0,
+      zusatzbeitrag: data.zusatzbeitrag !== undefined && data.zusatzbeitrag !== ''
+        ? parseFloat(data.zusatzbeitrag) : 2.5
+    });
+
+    // Taxable rental result (year 1): rent minus deductible costs (interest, AfA,
+    // non-recoverable running costs). Usually a loss in the early years.
+    const vermietungsErgebnis =
+      jaehrlicheGesamtmiete
+      - jaehrlicheNichtUmlegbareNebenkosten
+      - jaehrlicheZinsen
+      - jaehrlicheAbschreibung;
+
+    const ersparnis = berechneSteuerersparnis(netto, vermietungsErgebnis);
+
+    steuer = {
+      hasTaxData: true,
+      ...netto,
+      ...ersparnis,
+      nachSteuerCashflowJahr: jaehrlicherCashflow + ersparnis.ersparnisJahr,
+      nachSteuerCashflowMonat: monatlicherCashflow + ersparnis.ersparnisMonat
+    };
+  }
+
+  const results = {
     // Input values (for reference)
     input: values,
     
@@ -115,6 +312,7 @@ export const calculateResults = (data) => {
     monatlicheNebenkosten: calculatedNebenkosten,
     monatlicheNichtUmlegbareNebenkosten: calculatedNichtUmlegbareNebenkosten,
     monatlicheAnnuitaet,
+    monatlicheZinsen,
     monatlicheAbschreibung,
     monatlicherCashflow,
     
@@ -126,6 +324,8 @@ export const calculateResults = (data) => {
     jaehrlicheNebenkosten,
     jaehrlicheNichtUmlegbareNebenkosten,
     jaehrlicheAnnuitaet,
+    jaehrlicheZinsen,
+    jaehrlicheTilgung,
     jaehrlicheAbschreibung,
     jaehrlicherCashflow,
     
@@ -133,6 +333,11 @@ export const calculateResults = (data) => {
     mietrendite,
     cashflowRendite,
     eigenkapitalrendite,
+    kaufpreisFaktor,
+    nachSteuerCashflowMonatlich: steuer.hasTaxData ? steuer.nachSteuerCashflowMonat : monatlicherCashflow,
+    
+    // Tax / net income
+    steuer,
     
     // Per square meter
     kaufpreisProQm,
@@ -142,4 +347,9 @@ export const calculateResults = (data) => {
     gebaeudewert,
     grundstueckswert: kaufpreis - gebaeudewert
   };
+
+  // Transparent overall verdict derived from the key metrics above
+  results.verdict = calculateVerdict(results);
+
+  return results;
 };

@@ -1,8 +1,261 @@
 import React, { useState } from 'react';
 import InfoTooltip from './InfoTooltip';
 import { formatCurrency, formatPercent } from '../utils/calculations';
+import { STEUERKLASSEN } from '../utils/germanTax';
 
-const Results = ({ results, onReset }) => {
+// Formats a criterion value according to its unit (€, %, x).
+const formatCriterionValue = (criterion) => {
+  if (criterion.unit === '€') return formatCurrency(criterion.value);
+  if (criterion.unit === '%') return formatPercent(criterion.value);
+  if (criterion.unit === 'x') return `${criterion.value.toFixed(1)}x`;
+  return `${criterion.value}`;
+};
+
+// Describes the threshold rule for a criterion in plain language.
+const describeThreshold = (criterion) => {
+  const { thresholds, unit, lowerIsBetter } = criterion;
+  const fmt = (v) => (unit === '%' ? `${v} %` : unit === 'x' ? `${v}x` : formatCurrency(v));
+  if (lowerIsBetter) {
+    return `Gut ≤ ${fmt(thresholds.good)} · Neutral ≤ ${fmt(thresholds.neutral)} · sonst Schwach`;
+  }
+  return `Gut ≥ ${fmt(thresholds.good)} · Neutral ≥ ${fmt(thresholds.neutral)} · sonst Schwach`;
+};
+
+// Prominent verdict card plus a transparent breakdown table that shows
+// exactly how each metric contributed to the overall score.
+const VerdictSection = ({ verdict }) => {
+  const verdictClass = verdict.score >= 60 ? 'good' : verdict.score >= 40 ? 'neutral' : 'poor';
+  return (
+    <div className="verdict">
+      <div className={`verdict-banner verdict-${verdictClass}`}>
+        <div className="verdict-score">
+          <span className="verdict-score-value">{verdict.score}</span>
+          <span className="verdict-score-max">/ 100</span>
+        </div>
+        <div className="verdict-text">
+          <span className="verdict-rating">{verdict.rating}</span>
+          <span className="verdict-summary">{verdict.summary}</span>
+        </div>
+      </div>
+
+      <h3>So kam das Urteil zustande</h3>
+      <p className="verdict-intro">
+        Jede Kennzahl wird mit „Gut", „Neutral" oder „Schwach" bewertet (2 / 1 / 0 Punkte)
+        und je nach Wichtigkeit gewichtet. Aus erreichten {verdict.earned} von {verdict.max}
+        {' '}gewichteten Punkten ergibt sich der Score von {verdict.score} %.
+      </p>
+      <table className="details-table verdict-table">
+        <thead>
+          <tr>
+            <th>Kennzahl</th>
+            <th>Wert</th>
+            <th>Bewertung</th>
+            <th>Gewicht</th>
+            <th>Punkte</th>
+            <th>Schwellenwerte</th>
+          </tr>
+        </thead>
+        <tbody>
+          {verdict.breakdown.map((c) => (
+            <tr key={c.key} className={`verdict-row-${c.color}`}>
+              <td>
+                {c.label}
+                <InfoTooltip text={`${c.description}\n${c.explanation}`} />
+              </td>
+              <td>{formatCriterionValue(c)}</td>
+              <td>
+                <span className={`verdict-badge verdict-badge-${c.color}`}>
+                  {c.ratingLabel}
+                </span>
+              </td>
+              <td>×{c.weight}</td>
+              <td>{c.weightedPoints} / {c.maxWeightedPoints}</td>
+              <td className="verdict-threshold">{describeThreshold(c)}</td>
+            </tr>
+          ))}
+          <tr className="verdict-total-row">
+            <td colSpan={4}><strong>Gesamt</strong></td>
+            <td><strong>{verdict.earned} / {verdict.max}</strong></td>
+            <td><strong>{verdict.score} %</strong></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  );
+};
+
+// Shared helper for positive/negative row coloring (module scope).
+const getRowClass = (value) => (value > 0 ? 'positive' : value < 0 ? 'negative' : '');
+
+// Brutto-Netto income breakdown and the property tax saving, shown only when
+// the user provided income data in step 4.
+const TaxSection = ({ steuer, results, showCalculations }) => {
+  const savingClass = getRowClass(steuer.ersparnisJahr);
+  const steuerklasseLabel = (STEUERKLASSEN.find(k => k.value === String(steuer.steuerklasse)) || {}).label;
+  return (
+    <div className="tax-section">
+      <h3>Brutto-Netto-Rechner (Schätzung 2025)</h3>
+      <p className="verdict-intro">
+        Geschätztes Nettoeinkommen aus Ihrem Bruttogehalt – inkl. Sozialabgaben,
+        Lohnsteuer, Soli und ggf. Kirchensteuer.
+        {steuerklasseLabel && <> Steuerklasse: <strong>{steuerklasseLabel}</strong>.</>}
+      </p>
+      <table className="details-table">
+        <thead>
+          <tr>
+            <th>Position</th>
+            <th>Jährlich</th>
+            <th>Monatlich</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Bruttoeinkommen</td>
+            <td>{formatCurrency(steuer.brutto)}</td>
+            <td>{formatCurrency(steuer.brutto / 12)}</td>
+          </tr>
+          <tr>
+            <td>− Rentenversicherung</td>
+            <td>{formatCurrency(steuer.rv)}</td>
+            <td>{formatCurrency(steuer.rv / 12)}</td>
+          </tr>
+          <tr>
+            <td>− Arbeitslosenversicherung</td>
+            <td>{formatCurrency(steuer.av)}</td>
+            <td>{formatCurrency(steuer.av / 12)}</td>
+          </tr>
+          <tr>
+            <td>− Krankenversicherung</td>
+            <td>{formatCurrency(steuer.kv)}</td>
+            <td>{formatCurrency(steuer.kv / 12)}</td>
+          </tr>
+          <tr>
+            <td>− Pflegeversicherung</td>
+            <td>{formatCurrency(steuer.pv)}</td>
+            <td>{formatCurrency(steuer.pv / 12)}</td>
+          </tr>
+          <tr>
+            <td>− Lohn-/Einkommensteuer</td>
+            <td>{formatCurrency(steuer.est)}</td>
+            <td>{formatCurrency(steuer.est / 12)}</td>
+          </tr>
+          {steuer.soli > 0 && (
+            <tr>
+              <td>− Solidaritätszuschlag</td>
+              <td>{formatCurrency(steuer.soli)}</td>
+              <td>{formatCurrency(steuer.soli / 12)}</td>
+            </tr>
+          )}
+          {steuer.kirchensteuer > 0 && (
+            <tr>
+              <td>− Kirchensteuer ({Math.round(steuer.kircheRate * 100)}%)</td>
+              <td>{formatCurrency(steuer.kirchensteuer)}</td>
+              <td>{formatCurrency(steuer.kirchensteuer / 12)}</td>
+            </tr>
+          )}
+          <tr className="verdict-total-row">
+            <td><strong>= Nettoeinkommen</strong></td>
+            <td><strong>{formatCurrency(steuer.netto)}</strong></td>
+            <td><strong>{formatCurrency(steuer.nettoMonatlich)}</strong></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>Steuerersparnis durch die Immobilie</h3>
+      <p className="verdict-intro">
+        Zinsen und Abschreibung (AfA) mindern Ihr zu versteuerndes Einkommen. Das
+        steuerliche Vermietungsergebnis im 1. Jahr und die daraus folgende Ersparnis:
+      </p>
+      <table className="details-table">
+        <tbody>
+          <tr>
+            <td>Jahresmiete (kalt + Stellplatz)</td>
+            <td>{formatCurrency(results.jaehrlicheGesamtmiete)}</td>
+            {showCalculations && <td>Einnahmen aus Vermietung</td>}
+          </tr>
+          <tr>
+            <td>− Nicht umlegbare Nebenkosten</td>
+            <td>{formatCurrency(results.jaehrlicheNichtUmlegbareNebenkosten)}</td>
+            {showCalculations && <td>Werbungskosten</td>}
+          </tr>
+          <tr>
+            <td>− Schuldzinsen</td>
+            <td>{formatCurrency(results.jaehrlicheZinsen)}</td>
+            {showCalculations && (
+              <td>Fremdkapital × Zins = {formatCurrency(results.fremdkapital)} × {results.input.zins}%</td>
+            )}
+          </tr>
+          <tr>
+            <td>− Abschreibung (AfA)</td>
+            <td>{formatCurrency(results.jaehrlicheAbschreibung)}</td>
+            {showCalculations && (
+              <td>Gebäudewert × {results.input.abschreibungsrate}%</td>
+            )}
+          </tr>
+          <tr className={getRowClass(steuer.vermietungsErgebnis)}>
+            <td><strong>= Steuerliches Vermietungsergebnis</strong></td>
+            <td><strong>{formatCurrency(steuer.vermietungsErgebnis)}</strong></td>
+            {showCalculations && (
+              <td>Negativ = steuerlicher Verlust, mindert das Einkommen</td>
+            )}
+          </tr>
+          <tr>
+            <td>Steuer auf Gehalt (vorher)</td>
+            <td>{formatCurrency(steuer.steuerVorher)}</td>
+            {showCalculations && <td>ESt + Soli + Kirchensteuer auf zvE {formatCurrency(steuer.zvE)}</td>}
+          </tr>
+          <tr>
+            <td>Steuer mit Immobilie (nachher)</td>
+            <td>{formatCurrency(steuer.steuerNachher)}</td>
+            {showCalculations && <td>ESt + Soli + Kirchensteuer auf zvE {formatCurrency(Math.max(0, steuer.zvE + steuer.vermietungsErgebnis))}</td>}
+          </tr>
+          <tr className={savingClass}>
+            <td><strong>= Steuerersparnis pro Jahr</strong></td>
+            <td><strong>{formatCurrency(steuer.ersparnisJahr)}</strong></td>
+            {showCalculations && (
+              <td>{formatCurrency(steuer.steuerVorher)} − {formatCurrency(steuer.steuerNachher)} = {formatCurrency(steuer.ersparnisJahr)}</td>
+            )}
+          </tr>
+          <tr>
+            <td>Steuerersparnis pro Monat</td>
+            <td>{formatCurrency(steuer.ersparnisMonat)}</td>
+            {showCalculations && <td>Jahresersparnis ÷ 12</td>}
+          </tr>
+          <tr className={`verdict-total-row ${getRowClass(steuer.nachSteuerCashflowMonat)}`}>
+            <td><strong>Cashflow nach Steuern (Monat)</strong></td>
+            <td><strong>{formatCurrency(steuer.nachSteuerCashflowMonat)}</strong></td>
+            {showCalculations && (
+              <td>{formatCurrency(results.monatlicherCashflow)} + {formatCurrency(steuer.ersparnisMonat)} = {formatCurrency(steuer.nachSteuerCashflowMonat)}</td>
+            )}
+          </tr>
+        </tbody>
+      </table>
+      <p className="tax-disclaimer">
+        Hinweis: vereinfachte Schätzung für das Steuerjahr 2025, keine Steuerberatung.
+        Zinsen sinken über die Laufzeit, dadurch verändert sich die Ersparnis in Folgejahren.
+      </p>
+    </div>
+  );
+};
+
+// Prompt shown when the user did not enter any income in step 4, so the
+// Brutto-Netto-Rechner could not be calculated.
+const TaxHint = ({ onEdit }) => (
+  <div className="tax-section tax-hint">
+    <h3>Brutto-Netto-Rechner (Schätzung 2025)</h3>
+    <p className="verdict-intro">
+      Für den Brutto-Netto-Rechner und die Steuerersparnis fehlt noch Ihr
+      Bruttogehalt. Tragen Sie es in Schritt 4 „Persönliche Steuerdaten“ ein –
+      dann sehen Sie hier Ihr geschätztes Netto und wie viel Steuern Sie durch die
+      Immobilie (Zinsen + AfA) sparen.
+    </p>
+    {onEdit && (
+      <button type="button" onClick={onEdit}>→ Steuerdaten ergänzen</button>
+    )}
+  </div>
+);
+
+const Results = ({ results, onReset, onEdit }) => {
   const [showCalculations, setShowCalculations] = useState(false);
   
   if (!results) return null;
@@ -33,6 +286,10 @@ const Results = ({ results, onReset }) => {
         </label>
         <span className="toggle-label">Berechnungen anzeigen</span>
       </div>
+      
+      {results.verdict && (
+        <VerdictSection verdict={results.verdict} />
+      )}
       
       <div className="summary">
         <div className="summary-item">
@@ -70,6 +327,17 @@ ${showCalculations ? `Berechnung: (${formatCurrency(results.jaehrlicherCashflow)
           <InfoTooltip text={`Monatliche Einnahmen abzüglich aller Ausgaben
 ${showCalculations ? `Berechnung: ${formatCurrency(results.monatlicheGesamtmiete)} - ${formatCurrency(results.monatlicheNichtUmlegbareNebenkosten)} - ${formatCurrency(results.monatlicheAnnuitaet)} = ${formatCurrency(results.monatlicherCashflow)}` : ''}`} />
         </div>
+
+        {results.steuer && results.steuer.hasTaxData && (
+          <div className="summary-item">
+            <span>Cashflow nach Steuern</span>
+            <span className={`value ${getValueClass(results.steuer.nachSteuerCashflowMonat)}`}>
+              {formatCurrency(results.steuer.nachSteuerCashflowMonat)}
+            </span>
+            <InfoTooltip text={`Monatlicher Cashflow inkl. Steuerersparnis
+${showCalculations ? `Berechnung: ${formatCurrency(results.monatlicherCashflow)} + ${formatCurrency(results.steuer.ersparnisMonat)} (Steuerersparnis) = ${formatCurrency(results.steuer.nachSteuerCashflowMonat)}` : ''}`} />
+          </div>
+        )}
       </div>
       
       <h3>Kennzahlen im Detail</h3>
@@ -326,8 +594,17 @@ ${showCalculations ? `Berechnung: ${formatCurrency(results.monatlicheGesamtmiete
           </tr>
         </tbody>
       </table>
+
+      {results.steuer && results.steuer.hasTaxData ? (
+        <TaxSection steuer={results.steuer} results={results} showCalculations={showCalculations} />
+      ) : (
+        <TaxHint onEdit={onEdit} />
+      )}
       
       <div className="button-container">
+        {onEdit && (
+          <button onClick={onEdit} className="secondary">← Eingaben bearbeiten</button>
+        )}
         <button onClick={onReset}>Neue Berechnung</button>
         <button onClick={() => window.print()} className="secondary">Ergebnisse drucken</button>
       </div>

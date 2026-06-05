@@ -1429,7 +1429,8 @@ select:focus {
 .app-header {
   display: flex;
   justify-content: flex-end;
-  padding: 8px 4px 0;
+  padding: 8px 4px;
+  margin-bottom: 12px;
 }
 
 .auth-bar {
@@ -1437,6 +1438,10 @@ select:focus {
   align-items: center;
   gap: 10px;
   font-size: 13.5px;
+}
+
+.auth-bar .auth-link {
+  margin: 0;
 }
 
 .auth-status {
@@ -1598,4 +1603,103 @@ select:focus {
 
 .sync-error {
   color: #c0392b;
+}
+
+/* ---- Favoriten (favorites) -------------------------------------------- */
+/* Star toggle button (resets the global blue button styling). */
+.fav-star {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  margin: 0;
+  padding: 2px 4px;
+  color: #c0a800;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.fav-star:hover {
+  background: none;
+  color: #e0b400;
+}
+
+.fav-star .fav-star-icon {
+  color: #b9c2cc;
+  transition: color 0.15s, transform 0.1s;
+}
+
+.fav-star.is-active .fav-star-icon {
+  color: #f1b800;
+}
+
+.fav-star:hover .fav-star-icon {
+  transform: scale(1.12);
+}
+
+.fav-star .fav-star-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #5a6b7b;
+}
+
+.fav-star.is-active .fav-star-label {
+  color: #b8860b;
+}
+
+/* Star in the overview table sits inline before the listing title. */
+.portfolio-table .row-star {
+  float: left;
+  margin: -2px 6px 0 -2px;
+  font-size: 17px;
+}
+
+/* Single-apartment results header: title + star on one line. */
+.results-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.results-title h2 {
+  margin: 0;
+}
+
+.results-title .fav-star {
+  border: 1px solid #e6d27a;
+  border-radius: 8px;
+  padding: 6px 12px;
+  background: #fffdf3;
+}
+
+.results-title .fav-star.is-active {
+  border-color: #f1b800;
+  background: #fff8e0;
+}
+
+.favorites-empty {
+  background: #f9fbfd;
+  border: 1px dashed #cdd8e2;
+  border-radius: 10px;
+  padding: 28px 20px;
+  text-align: center;
+  color: #6b7785;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.fav-title {
+  font-weight: 600;
+  color: #2c3e50;
+}
+
+@media (max-width: 768px) {
+  .portfolio-table .row-star {
+    float: none;
+    margin: 0 6px 0 0;
+  }
 }

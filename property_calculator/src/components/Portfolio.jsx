@@ -12,6 +12,8 @@ import { CITIES, getCityById } from '../data/cities';
 import { fetchLiveListings, fetchListingByUrl, DEFAULT_PROXY } from '../utils/immoweltProvider';
 import { useAuth } from '../lib/AuthContext';
 import { loadRemotePortfolio, saveRemotePortfolio } from '../lib/portfolioStore';
+import FavoriteButton from './FavoriteButton';
+import { favoriteFromListing } from '../utils/favorites';
 
 const EMPTY_LISTING = {
   titel: '',
@@ -1039,6 +1041,10 @@ const Portfolio = () => {
                 className={`${score === bestScore ? 'is-best' : ''}${expandedId === listing.id ? ' is-expanded' : ''}`}
               >
                 <td>
+                  <FavoriteButton
+                    className="row-star"
+                    favorite={favoriteFromListing(listing, { results, score, cashflow }, cityId, city.name)}
+                  />
                   {listing.url ? (
                     <a
                       className="link-cell"

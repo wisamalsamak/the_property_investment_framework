@@ -338,7 +338,7 @@ const ProjectionSection = ({ projektion, hasTaxData }) => {
   );
 };
 
-const Results = ({ results, onReset, onEdit }) => {
+const Results = ({ results, onReset, onEdit, favoriteControl = null }) => {
   const [showCalculations, setShowCalculations] = useState(false);
   
   if (!results) return null;
@@ -356,7 +356,10 @@ const Results = ({ results, onReset, onEdit }) => {
   
   return (
     <div className="results">
-      <h2>Ergebnisse Ihrer Immobilieninvestition</h2>
+      <div className="results-title">
+        <h2>Ergebnisse Ihrer Immobilieninvestition</h2>
+        {favoriteControl}
+      </div>
       
       <div className="toggle-container">
         <label className="toggle-switch">

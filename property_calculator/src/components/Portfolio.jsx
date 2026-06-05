@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import InputWithLabel from './InputWithLabel';
 import Results from './Results';
 import { calculateResults, formatCurrency, formatPercent } from '../utils/calculations';
@@ -10,6 +10,8 @@ import {
 } from '../data/muenchenListings';
 import { CITIES, getCityById } from '../data/cities';
 import { fetchLiveListings, fetchListingByUrl, DEFAULT_PROXY } from '../utils/immoweltProvider';
+import { useAuth } from '../lib/AuthContext';
+import { loadRemotePortfolio, saveRemotePortfolio } from '../lib/portfolioStore';
 
 const EMPTY_LISTING = {
   titel: '',
@@ -402,6 +404,7 @@ const detailHref = (cityId, listingId) =>
   `?ansicht=portfolio&stadt=${encodeURIComponent(cityId)}&wohnung=${encodeURIComponent(listingId)}`;
 
 const Portfolio = () => {
+  const { user } = useAuth();
   const [persisted] = useState(loadPersisted);
   const [deepLink] = useState(readDeepLink);
 
@@ -446,6 +449,81 @@ const Portfolio = () => {
       /* storage full or unavailable – ignore */
     }
   }, [cityId, assumptions, listingsByCity, liveLoadedCities, proxyBase, liveLimit]);
+
+  // ---- Cloud sync (Supabase) ---------------------------------------------
+  // When a user is signed in, their portfolio is stored per-user in Supabase
+  // and takes precedence over localStorage. Guests keep using localStorage only.
+  const [syncState, setSyncState] = useState('idle'); // 'idle'|'loading'|'saving'|'saved'|'error'
+  // Skips the first save right after we hydrate remote state into local state,
+  // so loading a portfolio does not immediately write the same data back.
+  const skipNextSaveRef = useRef(false);
+  const saveTimerRef = useRef(null);
+
+  const applyRemoteBlob = (blob) => {
+    if (!blob || typeof blob !== 'object') return;
+    skipNextSaveRef.current = true;
+    if (blob.cityId) setCityId(blob.cityId);
+    if (blob.assumptions) setAssumptions(blob.assumptions);
+    if (blob.listingsByCity) {
+      setListingsByCity({ ...initialListingsByCity(), ...blob.listingsByCity });
+    }
+    if (blob.liveLoadedCities) setLiveLoadedCities(blob.liveLoadedCities);
+    if (blob.liveLimit) setLiveLimit(blob.liveLimit);
+  };
+
+  // On login (or session restore): pull the user's saved portfolio. If they have
+  // no row yet, seed it with whatever is currently on screen (their guest work).
+  useEffect(() => {
+    if (!user?.id) return;
+    let active = true;
+    setSyncState('loading');
+    (async () => {
+      try {
+        const blob = await loadRemotePortfolio(user.id);
+        if (!active) return;
+        if (blob) {
+          applyRemoteBlob(blob);
+        } else {
+          await saveRemotePortfolio(user.id, {
+            cityId, assumptions, listingsByCity, liveLoadedCities, proxyBase, liveLimit
+          });
+        }
+        if (active) setSyncState('saved');
+      } catch {
+        if (active) setSyncState('error');
+      }
+    })();
+    return () => {
+      active = false;
+    };
+    // Only react to the identity of the user, not to local state changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
+
+  // Debounced push of local changes to Supabase while signed in.
+  useEffect(() => {
+    if (!user?.id) return undefined;
+    if (skipNextSaveRef.current) {
+      skipNextSaveRef.current = false;
+      return undefined;
+    }
+    setSyncState('saving');
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(async () => {
+      try {
+        await saveRemotePortfolio(user.id, {
+          cityId, assumptions, listingsByCity, liveLoadedCities, proxyBase, liveLimit
+        });
+        setSyncState('saved');
+      } catch {
+        setSyncState('error');
+      }
+    }, 800);
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, cityId, assumptions, listingsByCity, liveLoadedCities, liveLimit]);
 
   // When opened via a deep link (new tab), scroll the expanded apartment row
   // into view so its detail panel is immediately visible.
@@ -622,6 +700,15 @@ const Portfolio = () => {
         persönlichen Annahmen (Finanzierung &amp; Steuer) durchgerechnet und erhält einen
         Score von 0–100 inklusive Empfehlung.
       </p>
+
+      {user && (
+        <p className={`sync-status sync-${syncState}`}>
+          {syncState === 'loading' && '⟳ Portfolio wird geladen…'}
+          {syncState === 'saving' && '⟳ Änderungen werden gespeichert…'}
+          {syncState === 'saved' && '✓ In deinem Konto gespeichert'}
+          {syncState === 'error' && '⚠ Synchronisierung fehlgeschlagen – lokal gespeichert'}
+        </p>
+      )}
 
       {/* City selector + source */}
       <div className="city-bar">

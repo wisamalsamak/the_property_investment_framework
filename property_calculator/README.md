@@ -44,12 +44,45 @@ Deployed on Netlify (`netlify.toml`):
   serverless function (the dev proxy above is only for local development).
 - SPA fallback routes `/*` to `/index.html`.
 
+## Authentication & database (Supabase)
+
+Optional accounts and per-user saved portfolios are backed by
+[Supabase](https://supabase.com) (auth + Postgres). The browser talks to Supabase
+directly with the public **anon** key; data is protected by Row Level Security, so
+a user can only read/write their own portfolio. **No backend server or Netlify
+function is needed for this.**
+
+If the env vars below are absent, the app still runs as a guest with data kept in
+`localStorage` — so it deploys and works before Supabase is set up.
+
+### One-time setup
+
+1. Create a project at [supabase.com](https://supabase.com).
+2. Run the schema: Supabase Dashboard → **SQL Editor** → paste
+   `supabase/migrations/0001_init.sql` → **Run**. This creates the `portfolios`
+   table and its RLS policies.
+3. (Optional) Dashboard → **Authentication → Providers → Email** to toggle whether
+   sign-ups require email confirmation.
+4. Copy `.env.example` to `.env.local` and fill in (Dashboard → **Project Settings → API**):
+   - `VITE_SUPABASE_URL` ← Project URL
+   - `VITE_SUPABASE_ANON_KEY` ← `anon` public key
+5. On **Netlify**: Site settings → **Environment variables** → add the same two
+   variables (scope: Builds). They are inlined at build time, so redeploy after
+   changing them.
+   In Supabase, also add your Netlify site URL under **Authentication → URL
+   Configuration** (Site URL / Redirect URLs).
+
+> The anon key is meant to be public. Never put the Supabase **service-role** key
+> in any `VITE_` variable or client code.
+
 ## Project structure
 
 - `src/` – React app
-  - `components/` – UI (`Calculator`, `Portfolio`, `Results`, `StepForm`, …)
+  - `components/` – UI (`Calculator`, `Portfolio`, `Results`, `StepForm`, `AuthBar`, …)
+  - `lib/` – `supabaseClient.js`, `AuthContext.jsx`, `portfolioStore.js`
   - `utils/` – `calculations.js`, `germanTax.js`, `immoweltProvider.js`
   - `data/` – static city / listing data
+- `supabase/migrations/0001_init.sql` – DB schema + Row Level Security policies
 - `netlify/functions/immowelt.js` – production immowelt proxy
 - `vite.config.js` – Vite + Vitest config and the local immowelt dev proxy plugin
 - `index.html` – Vite HTML entry (loads `/src/index.jsx`)

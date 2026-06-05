@@ -167,6 +167,10 @@ export const buildCalcInput = (listing, assumptions = DEFAULT_ASSUMPTIONS) => {
   const mietProQm = num(assumptions.mietProQm, 20);
   const hausgeldProQm = num(assumptions.hausgeldProQm, 4);
 
+  // Personal tax data is global by default; a listing may override any single
+  // field (empty per-listing value = inherit the global assumption).
+  const taxPick = (key, fallback) => (hasVal(listing[key]) ? listing[key] : fallback);
+
   const kaltmiete = hasVal(listing.kaltmiete)
     ? num(listing.kaltmiete)
     : Math.round(groesse * mietProQm);
@@ -233,15 +237,17 @@ export const buildCalcInput = (listing, assumptions = DEFAULT_ASSUMPTIONS) => {
     eigenkapital: String(eigenkapital),
     zins: String(num(assumptions.zins, 3.5)),
     tilgung: String(num(assumptions.tilgung, 2)),
-    // personal tax (global)
-    bruttoJahresgehalt: String(assumptions.bruttoJahresgehalt || ''),
-    gehaltsperiode: assumptions.gehaltsperiode || 'monat',
-    steuerklasse: assumptions.steuerklasse || '1',
-    alter: String(assumptions.alter || ''),
-    bundesland: assumptions.bundesland || 'Bayern',
-    kinder: String(assumptions.kinder || '0'),
-    zusatzbeitrag: String(assumptions.zusatzbeitrag || '2.5'),
-    kirchensteuerpflichtig: !!assumptions.kirchensteuerpflichtig
+    // personal tax: global by default, optionally overridden per listing
+    bruttoJahresgehalt: String(taxPick('bruttoJahresgehalt', assumptions.bruttoJahresgehalt || '')),
+    gehaltsperiode: taxPick('gehaltsperiode', assumptions.gehaltsperiode || 'monat'),
+    steuerklasse: taxPick('steuerklasse', assumptions.steuerklasse || '1'),
+    alter: String(taxPick('alter', assumptions.alter || '')),
+    bundesland: taxPick('bundesland', assumptions.bundesland || 'Bayern'),
+    kinder: String(taxPick('kinder', assumptions.kinder || '0')),
+    zusatzbeitrag: String(taxPick('zusatzbeitrag', assumptions.zusatzbeitrag || '2.5')),
+    kirchensteuerpflichtig: hasVal(listing.kirchensteuerpflichtig)
+      ? (listing.kirchensteuerpflichtig === 'ja' || listing.kirchensteuerpflichtig === true)
+      : !!assumptions.kirchensteuerpflichtig
   };
 };
 

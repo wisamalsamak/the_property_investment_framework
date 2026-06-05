@@ -166,6 +166,74 @@ export const calculateVerdict = (results) => {
   return { score, earned, max, rating, summary, breakdown };
 };
 
+// Build a year-by-year amortization & cashflow projection. The annuity stays
+// constant while interest declines and Tilgung rises; the loan is paid down
+// until the remaining debt reaches zero (capped at 40 years). When tax context
+// (nettoCtx) is provided, the per-year tax saving is recomputed from the
+// shrinking interest deduction.
+export const buildProjection = ({
+  fremdkapital,
+  jahreszins,
+  jaehrlicheAnnuitaet,
+  jaehrlicheGesamtmiete,
+  jaehrlicheNichtUmlegbareNebenkosten,
+  jaehrlicheAbschreibung,
+  nettoCtx = null,
+  maxYears = 40
+}) => {
+  const rows = [];
+  const hasDebt = fremdkapital > 0 && jaehrlicheAnnuitaet > 0;
+  const horizon = hasDebt ? maxYears : 15;
+  let restschuld = fremdkapital;
+  let kumCashflow = 0;
+  let kumNachSteuer = 0;
+  let kumTilgung = 0;
+
+  for (let jahr = 1; jahr <= horizon; jahr++) {
+    const zinsen = restschuld > 0 ? restschuld * jahreszins : 0;
+    let tilgung = restschuld > 0 ? Math.min(jaehrlicheAnnuitaet - zinsen, restschuld) : 0;
+    if (tilgung < 0) tilgung = 0;
+    const annuitaet = zinsen + tilgung;
+    const restschuldEnde = Math.max(0, restschuld - tilgung);
+
+    const cashflow = jaehrlicheGesamtmiete - jaehrlicheNichtUmlegbareNebenkosten - annuitaet;
+    const vermietungsErgebnis =
+      jaehrlicheGesamtmiete - jaehrlicheNichtUmlegbareNebenkosten - zinsen - jaehrlicheAbschreibung;
+
+    let ersparnisJahr = 0;
+    if (nettoCtx) {
+      ersparnisJahr = berechneSteuerersparnis(nettoCtx, vermietungsErgebnis).ersparnisJahr;
+    }
+    const nachSteuerCashflow = cashflow + ersparnisJahr;
+
+    kumCashflow += cashflow;
+    kumNachSteuer += nachSteuerCashflow;
+    kumTilgung += tilgung;
+
+    rows.push({
+      jahr,
+      restschuldAnfang: restschuld,
+      zinsen,
+      tilgung,
+      annuitaet,
+      restschuldEnde,
+      afa: jaehrlicheAbschreibung,
+      vermietungsErgebnis,
+      cashflow,
+      ersparnisJahr,
+      nachSteuerCashflow,
+      kumCashflow,
+      kumNachSteuer,
+      kumTilgung
+    });
+
+    restschuld = restschuldEnde;
+    if (hasDebt && restschuld <= 0.01) break;
+  }
+
+  return rows;
+};
+
 export const calculateResults = (data) => {
   // Parse all input values to numbers
   const values = {};
@@ -231,7 +299,12 @@ export const calculateResults = (data) => {
   const jaehrlicheTilgung = fremdkapital * jahrestilgung;
   
   // Depreciation calculations
-  const gebaeudewert = kaufpreis * (1 - (grundstueckswertAnteil / 100));
+  // The depreciable basis is the building's share of the TOTAL acquisition cost
+  // (Kaufpreis + Anschaffungsnebenkosten: Makler, Notar, Grunderwerbsteuer),
+  // since these incidental costs are added to the AfA basis proportionally.
+  const gebaeudeAnteil = 1 - (grundstueckswertAnteil / 100);
+  const gebaeudewert = gesamtkosten * gebaeudeAnteil;
+  const grundstueckswert = gesamtkosten - gebaeudewert;
   const jaehrlicheAbschreibung = gebaeudewert * (abschreibungsrate / 100);
   const monatlicheAbschreibung = jaehrlicheAbschreibung / 12;
   
@@ -242,9 +315,17 @@ export const calculateResults = (data) => {
   const jaehrlicherCashflow = monatlicherCashflow * 12;
   
   // Return calculations
-  const mietrendite = (jaehrlicheGesamtmiete / gesamtkosten) * 100;
+  // Bruttomietrendite is conventionally measured against the purchase price,
+  // which matches the "good >= 5 %" threshold used in the verdict.
+  const mietrendite = (jaehrlicheGesamtmiete / kaufpreis) * 100;
   const cashflowRendite = (jaehrlicherCashflow / gesamtkosten) * 100;
+  // Cash-on-cash return: pure liquidity return on the equity employed.
   const eigenkapitalrendite = (jaehrlicherCashflow / eigenkapitalBetrag) * 100;
+  // Total equity return incl. principal repayment (Tilgung): the Tilgung is not
+  // a real "cost" but builds equity, so it counts towards the wealth growth.
+  const jaehrlicherVermoegenszuwachs = jaehrlicherCashflow + jaehrlicheTilgung;
+  const eigenkapitalrenditeMitTilgung =
+    eigenkapitalBetrag > 0 ? (jaehrlicherVermoegenszuwachs / eigenkapitalBetrag) * 100 : 0;
   
   // Quadratmeter calculations
   const kaufpreisProQm = kaufpreis / groesse;
@@ -259,6 +340,7 @@ export const calculateResults = (data) => {
   const brutto = data.gehaltsperiode === 'monat' ? gehaltEingabe * 12 : gehaltEingabe;
   const hasTaxData = brutto > 0;
   let steuer = { hasTaxData: false };
+  let nettoCtx = null;
 
   if (hasTaxData) {
     const truthy = (v) => v === true || v === 'true' || v === 'ja';
@@ -272,6 +354,7 @@ export const calculateResults = (data) => {
       zusatzbeitrag: data.zusatzbeitrag !== undefined && data.zusatzbeitrag !== ''
         ? parseFloat(data.zusatzbeitrag) : 2.5
     });
+    nettoCtx = netto;
 
     // Taxable rental result (year 1): rent minus deductible costs (interest, AfA,
     // non-recoverable running costs). Usually a loss in the early years.
@@ -288,7 +371,11 @@ export const calculateResults = (data) => {
       ...netto,
       ...ersparnis,
       nachSteuerCashflowJahr: jaehrlicherCashflow + ersparnis.ersparnisJahr,
-      nachSteuerCashflowMonat: monatlicherCashflow + ersparnis.ersparnisMonat
+      nachSteuerCashflowMonat: monatlicherCashflow + ersparnis.ersparnisMonat,
+      // Total equity return incl. Tilgung and the tax saving.
+      eigenkapitalrenditeMitTilgungNachSteuer: eigenkapitalBetrag > 0
+        ? ((jaehrlicherVermoegenszuwachs + ersparnis.ersparnisJahr) / eigenkapitalBetrag) * 100
+        : 0
     };
   }
 
@@ -333,6 +420,8 @@ export const calculateResults = (data) => {
     mietrendite,
     cashflowRendite,
     eigenkapitalrendite,
+    eigenkapitalrenditeMitTilgung,
+    jaehrlicherVermoegenszuwachs,
     kaufpreisFaktor,
     nachSteuerCashflowMonatlich: steuer.hasTaxData ? steuer.nachSteuerCashflowMonat : monatlicherCashflow,
     
@@ -345,11 +434,22 @@ export const calculateResults = (data) => {
     
     // Depreciation
     gebaeudewert,
-    grundstueckswert: kaufpreis - gebaeudewert
+    grundstueckswert
   };
 
   // Transparent overall verdict derived from the key metrics above
   results.verdict = calculateVerdict(results);
+
+  // Multi-year amortization & cashflow projection (optional, on-demand display).
+  results.projektion = buildProjection({
+    fremdkapital,
+    jahreszins,
+    jaehrlicheAnnuitaet,
+    jaehrlicheGesamtmiete,
+    jaehrlicheNichtUmlegbareNebenkosten,
+    jaehrlicheAbschreibung,
+    nettoCtx
+  });
 
   return results;
 };

@@ -255,6 +255,89 @@ const TaxHint = ({ onEdit }) => (
   </div>
 );
 
+// Collapsible year-by-year amortization & cashflow projection. Collapsed by
+// default so it does not overwhelm the headline results.
+const ProjectionSection = ({ projektion, hasTaxData }) => {
+  const [open, setOpen] = useState(false);
+  if (!projektion || projektion.length === 0) return null;
+
+  const last = projektion[projektion.length - 1];
+  const tilgungsdauer = last.restschuldEnde <= 0.01 ? last.jahr : null;
+
+  return (
+    <div className="projection-section">
+      <button
+        type="button"
+        className="panel-toggle"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+      >
+        {open ? '▾' : '▸'} Entwicklung über die Jahre {open ? 'ausblenden' : 'anzeigen'}
+      </button>
+      {open && (
+        <>
+          <p className="verdict-intro">
+            Die Annuität bleibt konstant – mit der Zeit sinken die Zinsen und der
+            Tilgungsanteil steigt. Dadurch verändern sich Cashflow und
+            Steuerersparnis Jahr für Jahr.
+            {tilgungsdauer && <> Das Darlehen ist nach <strong>{tilgungsdauer} Jahren</strong> getilgt.</>}
+          </p>
+          <div className="projection-table-wrap">
+            <table className="details-table projection-table">
+              <thead>
+                <tr>
+                  <th>Jahr</th>
+                  <th className="num">Restschuld</th>
+                  <th className="num">Zinsen</th>
+                  <th className="num">Tilgung</th>
+                  <th className="num">AfA</th>
+                  <th className="num">Steuerl. Ergebnis</th>
+                  <th className="num">Cashflow</th>
+                  {hasTaxData && <th className="num">Steuerersparnis</th>}
+                  {hasTaxData && <th className="num">Cashflow n. St.</th>}
+                </tr>
+              </thead>
+              <tbody>
+                {projektion.map((r) => (
+                  <tr key={r.jahr}>
+                    <td>{r.jahr}</td>
+                    <td className="num">{formatCurrency(r.restschuldEnde)}</td>
+                    <td className="num">{formatCurrency(r.zinsen)}</td>
+                    <td className="num">{formatCurrency(r.tilgung)}</td>
+                    <td className="num">{formatCurrency(r.afa)}</td>
+                    <td className={`num ${getRowClass(r.vermietungsErgebnis)}`}>{formatCurrency(r.vermietungsErgebnis)}</td>
+                    <td className={`num ${getRowClass(r.cashflow)}`}>{formatCurrency(r.cashflow)}</td>
+                    {hasTaxData && <td className="num positive">{formatCurrency(r.ersparnisJahr)}</td>}
+                    {hasTaxData && <td className={`num ${getRowClass(r.nachSteuerCashflow)}`}>{formatCurrency(r.nachSteuerCashflow)}</td>}
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="verdict-total-row">
+                  <td><strong>Summe</strong></td>
+                  <td className="num"></td>
+                  <td className="num"></td>
+                  <td className="num"><strong>{formatCurrency(last.kumTilgung)}</strong></td>
+                  <td className="num"></td>
+                  <td className="num"></td>
+                  <td className={`num ${getRowClass(last.kumCashflow)}`}><strong>{formatCurrency(last.kumCashflow)}</strong></td>
+                  {hasTaxData && <td className="num"></td>}
+                  {hasTaxData && <td className={`num ${getRowClass(last.kumNachSteuer)}`}><strong>{formatCurrency(last.kumNachSteuer)}</strong></td>}
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+          <p className="tax-disclaimer">
+            Vereinfachte Projektion mit konstanter Miete, konstantem Hausgeld und
+            gleichbleibendem Zinssatz (keine Zinsbindung/Anschlussfinanzierung
+            berücksichtigt). AfA als linear angenommen.
+          </p>
+        </>
+      )}
+    </div>
+  );
+};
+
 const Results = ({ results, onReset, onEdit }) => {
   const [showCalculations, setShowCalculations] = useState(false);
   
@@ -297,8 +380,8 @@ const Results = ({ results, onReset, onEdit }) => {
           <span className={`value ${getValueClass(results.mietrendite)}`}>
             {formatPercent(results.mietrendite)}
           </span>
-          <InfoTooltip text={`Jährliche Mieteinnahmen im Verhältnis zur Gesamtinvestition
-${showCalculations ? `Berechnung: (${formatCurrency(results.jaehrlicheGesamtmiete)} ÷ ${formatCurrency(results.gesamtkosten)}) × 100 = ${formatPercent(results.mietrendite)}` : ''}`} />
+          <InfoTooltip text={`Brutto-Mietrendite: jährliche Mieteinnahmen im Verhältnis zum Kaufpreis
+${showCalculations ? `Berechnung: (${formatCurrency(results.jaehrlicheGesamtmiete)} ÷ ${formatCurrency(results.kaufpreis)}) × 100 = ${formatPercent(results.mietrendite)}` : ''}`} />
         </div>
         
         <div className="summary-item">
@@ -315,10 +398,19 @@ ${showCalculations ? `Berechnung: (${formatCurrency(results.jaehrlicherCashflow)
           <span className={`value ${getValueClass(results.eigenkapitalrendite)}`}>
             {formatPercent(results.eigenkapitalrendite)}
           </span>
-          <InfoTooltip text={`Jährlicher Cashflow im Verhältnis zum eingesetzten Eigenkapital
+          <InfoTooltip text={`Cash-on-Cash: jährlicher Cashflow im Verhältnis zum eingesetzten Eigenkapital (Tilgung zählt hier als Ausgabe)
 ${showCalculations ? `Berechnung: (${formatCurrency(results.jaehrlicherCashflow)} ÷ ${formatCurrency(results.eigenkapitalBetrag)}) × 100 = ${formatPercent(results.eigenkapitalrendite)}` : ''}`} />
         </div>
-        
+
+        <div className="summary-item">
+          <span>Gesamtrendite EK (inkl. Tilgung)</span>
+          <span className={`value ${getValueClass(results.eigenkapitalrenditeMitTilgung)}`}>
+            {formatPercent(results.eigenkapitalrenditeMitTilgung)}
+          </span>
+          <InfoTooltip text={`Vermögenszuwachs auf das Eigenkapital: Cashflow + Tilgung (Tilgung baut Vermögen auf, ist keine echte Ausgabe)
+${showCalculations ? `Berechnung: ((${formatCurrency(results.jaehrlicherCashflow)} + ${formatCurrency(results.jaehrlicheTilgung)}) ÷ ${formatCurrency(results.eigenkapitalBetrag)}) × 100 = ${formatPercent(results.eigenkapitalrenditeMitTilgung)}` : ''}`} />
+        </div>
+                
         <div className="summary-item">
           <span>Monatlicher Cashflow</span>
           <span className={`value ${getValueClass(results.monatlicherCashflow)}`}>
@@ -567,8 +659,8 @@ ${showCalculations ? `Berechnung: ${formatCurrency(results.monatlicherCashflow)}
             <td>{formatCurrency(results.gebaeudewert)}</td>
             {showCalculations && (
               <td>
-                Kaufpreis × (100% - Grundstückswertanteil%) = Gebäudewert<br/>
-                {formatCurrency(results.kaufpreis)} × (100% - {results.input.grundstueckswertAnteil}%) = {formatCurrency(results.gebaeudewert)}
+                Gesamtkosten × (100% - Grundstückswertanteil%) = Gebäudewert<br/>
+                {formatCurrency(results.gesamtkosten)} × (100% - {results.input.grundstueckswertAnteil}%) = {formatCurrency(results.gebaeudewert)}
               </td>
             )}
           </tr>
@@ -577,8 +669,8 @@ ${showCalculations ? `Berechnung: ${formatCurrency(results.monatlicherCashflow)}
             <td>{formatCurrency(results.grundstueckswert)}</td>
             {showCalculations && (
               <td>
-                Kaufpreis × Grundstückswertanteil% = Grundstückswert<br/>
-                {formatCurrency(results.kaufpreis)} × {results.input.grundstueckswertAnteil}% = {formatCurrency(results.grundstueckswert)}
+                Gesamtkosten × Grundstückswertanteil% = Grundstückswert<br/>
+                {formatCurrency(results.gesamtkosten)} × {results.input.grundstueckswertAnteil}% = {formatCurrency(results.grundstueckswert)}
               </td>
             )}
           </tr>
@@ -594,12 +686,21 @@ ${showCalculations ? `Berechnung: ${formatCurrency(results.monatlicherCashflow)}
           </tr>
         </tbody>
       </table>
+      <p className="tax-disclaimer">
+        Die AfA-Bemessungsgrundlage umfasst den Gebäudeanteil der gesamten
+        Anschaffungskosten (Kaufpreis + Makler, Notar &amp; Grunderwerbsteuer).
+      </p>
 
       {results.steuer && results.steuer.hasTaxData ? (
         <TaxSection steuer={results.steuer} results={results} showCalculations={showCalculations} />
       ) : (
         <TaxHint onEdit={onEdit} />
       )}
+
+      <ProjectionSection
+        projektion={results.projektion}
+        hasTaxData={!!(results.steuer && results.steuer.hasTaxData)}
+      />
       
       <div className="button-container">
         {onEdit && (

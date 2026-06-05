@@ -119,11 +119,25 @@ export const sozialabgaben = ({ brutto, alter, kinder, zusatzbeitrag }) => {
 };
 
 // Total income-related tax (ESt + Soli + Kirchensteuer) for a given zvE.
+// Uses the monthly withholding logic per Steuerklasse – right for the
+// Brutto->Netto display, but NOT for the marginal effect of rental income.
 const gesamtsteuer = (zvE, { steuerklasse, kircheRate }) => {
   const est = lohnsteuer(zvE, steuerklasse);
   const s = soli(est, istSplitting(steuerklasse));
   const kirche = est * kircheRate;
   return { est, soli: s, kirche, summe: est + s + kirche };
+};
+
+// Income tax under the annual assessment (Veranlagung): Grundtarif for singles,
+// Splittingtarif for jointly assessed spouses. This is the correct basis for
+// the marginal effect of rental income (V&V), independent of the Steuerklasse
+// chosen for monthly withholding (classes 3/5/6 only shift withholding, not the
+// final tax bill).
+const veranlagungsSteuer = (zvE, { verheiratet = false, kircheRate = 0 }) => {
+  const est = einkommensteuer(zvE, verheiratet);
+  const s = soli(est, verheiratet);
+  const kirche = est * kircheRate;
+  return est + s + kirche;
 };
 
 // Full Brutto -> Netto estimate plus the values needed for the property
@@ -140,6 +154,8 @@ export const berechneNetto = (params) => {
   } = params;
 
   const kircheRate = kirchensteuerpflichtig ? kirchensteuersatz(bundesland) : 0;
+  // Steuerklassen 3/4/5 imply joint assessment -> Splittingtarif for V&V income.
+  const verheiratet = [3, 4, 5].includes(parseInt(steuerklasse, 10));
   const sozial = sozialabgaben({ brutto, alter, kinder, zusatzbeitrag });
 
   // Deductible provisions (vereinfachte Vorsorgepauschale: RV + KV + PV).
@@ -166,7 +182,7 @@ export const berechneNetto = (params) => {
     nettoMonatlich: netto / 12,
     steuerklasse,
     // expose context so the property comparison can re-use it
-    _ctx: { steuerklasse, kircheRate }
+    _ctx: { steuerklasse, kircheRate, verheiratet }
   };
 };
 
@@ -175,9 +191,9 @@ export const berechneNetto = (params) => {
 // compare the income tax before vs. after.
 export const berechneSteuerersparnis = (nettoErgebnis, vermietungsErgebnis) => {
   const { zvE, _ctx } = nettoErgebnis;
-  const steuerVorher = gesamtsteuer(zvE, _ctx).summe;
+  const steuerVorher = veranlagungsSteuer(zvE, _ctx);
   const zvEneu = Math.max(0, zvE + vermietungsErgebnis);
-  const steuerNachher = gesamtsteuer(zvEneu, _ctx).summe;
+  const steuerNachher = veranlagungsSteuer(zvEneu, _ctx);
   const ersparnisJahr = steuerVorher - steuerNachher;
   return {
     vermietungsErgebnis,

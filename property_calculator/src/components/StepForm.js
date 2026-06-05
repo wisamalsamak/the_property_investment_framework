@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import InputWithLabel from './InputWithLabel';
+import InfoTooltip from './InfoTooltip';
 import { BUNDESLAENDER, STEUERKLASSEN } from '../utils/germanTax';
 
 const DEFAULT_FORM_DATA = {
@@ -28,8 +29,54 @@ const DEFAULT_FORM_DATA = {
   zusatzbeitrag: '2.5'
 };
 
+const STEP_LABELS = [
+  'Grunddaten',
+  'Finanzierung',
+  'Miete & Kosten',
+  'Steuerdaten',
+];
+
+// Defined at module level (not inside StepForm) so React never remounts it.
+// All per-render data is passed as explicit props.
+const PctAbsInput = ({
+  field, label, description, tooltip,
+  min, max, step, required,
+  isAbs, baseExists, absUnit,
+  displayValue, error,
+  onTogglePct, onToggleAbs, onChange,
+}) => (
+  <div className="form-group">
+    <label htmlFor={field}>
+      <span>{label}</span>
+      {required && <span className="required">*</span>}
+      {tooltip && <InfoTooltip text={tooltip} />}
+      <span className="unit-toggle">
+        <button type="button" className={!isAbs ? 'active' : ''} onClick={onTogglePct}>%</button>
+        <button type="button" className={isAbs ? 'active' : ''} onClick={onToggleAbs}
+          disabled={!baseExists} title={!baseExists ? 'Kaufpreis erst eingeben' : undefined}>€</button>
+      </span>
+    </label>
+    {description && <p className="field-description">{description}</p>}
+    <div className={`input-with-unit ${error ? 'error' : ''}`}>
+      <input
+        type="number"
+        id={field}
+        name={field}
+        value={displayValue}
+        onChange={(e) => onChange(e.target.value)}
+        min={min != null ? min : '0'}
+        max={isAbs ? undefined : max}
+        step={isAbs ? '1' : (step || 'any')}
+      />
+      <span className="unit">{isAbs ? absUnit : '%'}</span>
+    </div>
+    {error && <div className="error-message">{error}</div>}
+  </div>
+);
+
 const StepForm = ({ onComplete, initialData = null }) => {
   const [currentStep, setCurrentStep] = useState(1);
+  const formTopRef = React.useRef(null);
   const [formData, setFormData] = useState({
     ...DEFAULT_FORM_DATA,
     ...(initialData || {})
@@ -38,7 +85,82 @@ const StepForm = ({ onComplete, initialData = null }) => {
   const [errors, setErrors] = useState({});
   const [touched, setTouched] = useState({});
 
-  const TOTAL_STEPS = 4;
+  // Track which % fields are shown as absolute € values
+  const [modes, setModes] = useState({
+    eigenkapital: 'pct',
+    provision: 'pct',
+    kaufnebenkosten: 'pct',
+    zins: 'pct',
+    tilgung: 'pct',
+    abschreibungsrate: 'pct',
+    grundstueckswertAnteil: 'pct',
+  });
+
+  // Compute the base value (denominator) used to convert % ↔ €
+  const getBase = (field) => {
+    const kp = parseFloat(formData.kaufpreis) || 0;
+    const prov = parseFloat(formData.provision) || 0;
+    const nk = parseFloat(formData.kaufnebenkosten) || 0;
+    const gesamtkosten = kp * (1 + prov / 100 + nk / 100);
+    const ekPct = parseFloat(formData.eigenkapital) || 0;
+    const fremdkapital = gesamtkosten * (1 - ekPct / 100);
+    const grundPct = parseFloat(formData.grundstueckswertAnteil) || 20;
+    const gebaeudewert = kp * (1 - grundPct / 100);
+    switch (field) {
+      case 'eigenkapital': return gesamtkosten;
+      case 'provision': return kp;
+      case 'kaufnebenkosten': return kp;
+      case 'zins': return fremdkapital;
+      case 'tilgung': return fremdkapital;
+      case 'abschreibungsrate': return gebaeudewert;
+      case 'grundstueckswertAnteil': return kp;
+      default: return 0;
+    }
+  };
+
+  // Return the value to show in the input: either the stored % or the computed €
+  const getDisplayValue = (field) => {
+    if (modes[field] === 'abs') {
+      const pct = parseFloat(formData[field]) || 0;
+      const base = getBase(field);
+      if (base <= 0) return '';
+      return String(Math.round(pct / 100 * base * 100) / 100);
+    }
+    return formData[field];
+  };
+
+  // Handle input changes for toggleable % fields
+  const handlePctAbsChange = (field, value) => {
+    if (modes[field] === 'abs') {
+      const base = getBase(field);
+      if (base > 0 && value !== '') {
+        const pct = (parseFloat(value) / base) * 100;
+        setFormData(prev => ({ ...prev, [field]: String(pct) }));
+      } else {
+        setFormData(prev => ({ ...prev, [field]: '' }));
+      }
+    } else {
+      setFormData(prev => ({ ...prev, [field]: value }));
+    }
+    if (!touched[field]) setTouched(prev => ({ ...prev, [field]: true }));
+  };
+
+  const toggleMode = (field, newMode) => setModes(prev => ({ ...prev, [field]: newMode }));
+
+  // Helper to build all props for a PctAbsInput field
+  const pctAbsProps = (field, opts = {}) => ({
+    field,
+    isAbs: modes[field] === 'abs',
+    baseExists: getBase(field) > 0,
+    absUnit: (field === 'zins' || field === 'tilgung') ? '€/Jahr' : '€',
+    displayValue: getDisplayValue(field),
+    error: errors[field],
+    onTogglePct: () => toggleMode(field, 'pct'),
+    onToggleAbs: () => toggleMode(field, 'abs'),
+    onChange: (value) => handlePctAbsChange(field, value),
+    ...opts,
+  });
+
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -124,11 +246,26 @@ const StepForm = ({ onComplete, initialData = null }) => {
     // Only proceed if current step is valid
     if (isStepValid(currentStep)) {
       setCurrentStep(currentStep + 1);
+      if (formTopRef.current) {
+        formTopRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
     }
   };
 
   const prevStep = () => {
     setCurrentStep(currentStep - 1);
+    if (formTopRef.current) {
+      formTopRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  };
+
+  const goToStep = (step) => {
+    if (step < currentStep) {
+      setCurrentStep(step);
+      if (formTopRef.current) {
+        formTopRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }
   };
 
   const handleSubmit = (e) => {
@@ -169,7 +306,7 @@ const StepForm = ({ onComplete, initialData = null }) => {
     switch(currentStep) {
       case 1:
         return (
-          <div className="step">
+          <div className="step" key="step-1">
             <h3>Schritt 1: Grunddaten der Immobilie</h3>
             <p className="step-intro">Beginnen Sie mit den Eckdaten des Objekts. Felder mit * sind Pflichtfelder.</p>
             <InputWithLabel
@@ -215,76 +352,46 @@ const StepForm = ({ onComplete, initialData = null }) => {
         
       case 2:
         return (
-          <div className="step">
+          <div className="step" key="step-2">
             <h3>Schritt 2: Finanzierung</h3>
             <p className="step-intro">Wie wird der Kauf finanziert? Diese Angaben bestimmen Ihre monatliche Kreditrate.</p>
             
-            <InputWithLabel
-              label="Eigenkapital"
-              name="eigenkapital"
-              value={formData.eigenkapital}
-              onChange={handleChange}
-              description="Anteil der Gesamtkosten, den Sie selbst einbringen. Der Rest wird finanziert. Üblich: 10–30 %."
-              tooltip="Eigenkapitalanteil in Prozent des Kaufpreises"
-              unit="%"
-              min="0"
-              max="100"
-              step="1"
-              error={errors.eigenkapital}
-            />
+            <PctAbsInput {...pctAbsProps('eigenkapital', {
+              label: 'Eigenkapital',
+              description: 'Anteil der Gesamtkosten, den Sie selbst einbringen. Der Rest wird finanziert. Üblich: 10–30 %.',
+              tooltip: 'Eigenkapitalanteil in Prozent der Gesamtkosten (Kaufpreis + Nebenkosten)',
+              max: '100',
+              step: '1',
+            })} />
             
-            <InputWithLabel
-              label="Maklerprovision"
-              name="provision"
-              value={formData.provision}
-              onChange={handleChange}
-              description="Käuferanteil der Maklercourtage. Häufig 3,57 % inkl. MwSt. – 0 eingeben, wenn provisionsfrei."
-              tooltip="Die Maklerprovision in Prozent des Kaufpreises"
-              unit="%"
-              min="0"
-              step="0.01"
-              error={errors.provision}
-            />
+            <PctAbsInput {...pctAbsProps('provision', {
+              label: 'Maklerprovision',
+              description: 'Käuferanteil der Maklercourtage. Häufig 3,57 % inkl. MwSt. – 0 eingeben, wenn provisionsfrei.',
+              tooltip: 'Die Maklerprovision in Prozent des Kaufpreises',
+              step: '0.01',
+            })} />
             
-            <InputWithLabel
-              label="Kaufnebenkosten"
-              name="kaufnebenkosten"
-              value={formData.kaufnebenkosten}
-              onChange={handleChange}
-              description="Grunderwerbsteuer + Notar + Grundbuch. Je nach Bundesland ca. 6–10 % des Kaufpreises."
-              tooltip="Grunderwerbsteuer, Notar, etc. in Prozent des Kaufpreises"
-              unit="%"
-              min="0"
-              step="0.1"
-              error={errors.kaufnebenkosten}
-            />
+            <PctAbsInput {...pctAbsProps('kaufnebenkosten', {
+              label: 'Kaufnebenkosten',
+              description: 'Grunderwerbsteuer + Notar + Grundbuch. Je nach Bundesland ca. 6–10 % des Kaufpreises.',
+              tooltip: 'Grunderwerbsteuer, Notar, etc. in Prozent des Kaufpreises',
+              step: '0.1',
+            })} />
             
             <div className="form-row">
-              <InputWithLabel
-                label="Sollzins"
-                name="zins"
-                value={formData.zins}
-                onChange={handleChange}
-                description="Jährlicher Kreditzins laut Bankangebot."
-                tooltip="Jahreszinssatz für die Finanzierung"
-                unit="%"
-                min="0"
-                step="0.01"
-                error={errors.zins}
-              />
+              <PctAbsInput {...pctAbsProps('zins', {
+                label: 'Sollzins',
+                description: 'Jährlicher Kreditzins laut Bankangebot.',
+                tooltip: 'Jahreszinssatz für die Finanzierung',
+                step: '0.01',
+              })} />
               
-              <InputWithLabel
-                label="Anfängliche Tilgung"
-                name="tilgung"
-                value={formData.tilgung}
-                onChange={handleChange}
-                description="Jährliche Tilgungsrate. Höher = schneller schuldenfrei, aber höhere Rate."
-                tooltip="Jährliche Tilgungsrate für die Finanzierung"
-                unit="%"
-                min="0"
-                step="0.01"
-                error={errors.tilgung}
-              />
+              <PctAbsInput {...pctAbsProps('tilgung', {
+                label: 'Anfängliche Tilgung',
+                description: 'Jährliche Tilgungsrate. Höher = schneller schuldenfrei, aber höhere Rate.',
+                tooltip: 'Jährliche Tilgungsrate für die Finanzierung',
+                step: '0.01',
+              })} />
             </div>
             
             <div className="step-navigation">
@@ -302,7 +409,7 @@ const StepForm = ({ onComplete, initialData = null }) => {
         
       case 3:
         return (
-          <div className="step">
+          <div className="step" key="step-3">
             <h3>Schritt 3: Miete & laufende Kosten</h3>
             <p className="step-intro">Einnahmen und Ausgaben pro Monat – daraus ergeben sich Cashflow und Rendite.</p>
             
@@ -370,32 +477,20 @@ const StepForm = ({ onComplete, initialData = null }) => {
             />
             
             <div className="form-row">
-              <InputWithLabel
-                label="Abschreibungsrate (AfA)"
-                name="abschreibungsrate"
-                value={formData.abschreibungsrate}
-                onChange={handleChange}
-                description="Steuerliche Abschreibung des Gebäudes pro Jahr. Standard: 2 % (Baujahr ab 1925)."
-                tooltip="Jährliche Abschreibungsrate für den Gebäudewert (typischerweise 2%)"
-                unit="%"
-                min="0"
-                step="0.1"
-                error={errors.abschreibungsrate}
-              />
+              <PctAbsInput {...pctAbsProps('abschreibungsrate', {
+                label: 'Abschreibungsrate (AfA)',
+                description: 'Steuerliche Abschreibung des Gebäudes pro Jahr. Standard: 2 % (Baujahr ab 1925).',
+                tooltip: 'Jährliche Abschreibungsrate für den Gebäudewert (typischerweise 2%)',
+                step: '0.1',
+              })} />
               
-              <InputWithLabel
-                label="Grundstücksanteil"
-                name="grundstueckswertAnteil"
-                value={formData.grundstueckswertAnteil}
-                onChange={handleChange}
-                description="Anteil des Bodens am Kaufpreis. Nur das Gebäude ist abschreibbar – der Boden nicht."
-                tooltip="Anteil des Grundstückswerts am Gesamtkaufpreis"
-                unit="%"
-                min="0"
-                max="100"
-                step="1"
-                error={errors.grundstueckswertAnteil}
-              />
+              <PctAbsInput {...pctAbsProps('grundstueckswertAnteil', {
+                label: 'Grundstücksanteil',
+                description: 'Anteil des Bodens am Kaufpreis. Nur das Gebäude ist abschreibbar – der Boden nicht.',
+                tooltip: 'Anteil des Grundstückswerts am Gesamtkaufpreis',
+                max: '100',
+                step: '1',
+              })} />
             </div>
             
             <div className="step-navigation">
@@ -413,7 +508,7 @@ const StepForm = ({ onComplete, initialData = null }) => {
 
       case 4:
         return (
-          <div className="step">
+          <div className="step" key="step-4">
             <h3>Schritt 4: Persönliche Steuerdaten (optional)</h3>
             <p className="step-intro">
               Optional: Mit Ihrem Einkommen schätzen wir Ihr Netto und die jährliche
@@ -540,12 +635,36 @@ const StepForm = ({ onComplete, initialData = null }) => {
   };
 
   return (
-    <form className="step-form" onSubmit={handleSubmit}>
-      <div className="progress-bar">
-        <div 
-          className="progress" 
-          style={{width: `${(currentStep / TOTAL_STEPS) * 100}%`}}
-        ></div>
+    <form className="step-form" onSubmit={handleSubmit} ref={formTopRef}>
+      <div className="step-indicator">
+        {STEP_LABELS.map((label, index) => {
+          const stepNum = index + 1;
+          const isDone = stepNum < currentStep;
+          const isCurrent = stepNum === currentStep;
+          if (isDone) {
+            return (
+              <button
+                key={stepNum}
+                type="button"
+                className="step-indicator-item done"
+                onClick={() => goToStep(stepNum)}
+                title={`Zurück zu ${label}`}
+              >
+                <div className="step-bubble">✓</div>
+                <span className="step-label">{label}</span>
+              </button>
+            );
+          }
+          return (
+            <div
+              key={stepNum}
+              className={`step-indicator-item ${isCurrent ? 'active' : ''}`}
+            >
+              <div className="step-bubble">{stepNum}</div>
+              <span className="step-label">{label}</span>
+            </div>
+          );
+        })}
       </div>
       {renderStep()}
     </form>

@@ -45,18 +45,118 @@ h1 {
   position: relative;
 }
 
-.progress-bar {
-  height: 6px;
-  background-color: #e0e0e0;
-  border-radius: 3px;
-  margin-bottom: 30px;
-  overflow: hidden;
+/* Step Indicator */
+.step-indicator {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 32px;
+  position: relative;
 }
 
-.progress {
-  height: 100%;
+.step-indicator::before {
+  content: '';
+  position: absolute;
+  top: 16px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background-color: #e0e0e0;
+  z-index: 0;
+}
+
+.step-indicator-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 1;
+  position: relative;
+  z-index: 1;
+}
+
+.step-bubble {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background-color: #e0e0e0;
+  color: #888;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 14px;
+  border: 2px solid #e0e0e0;
+  transition: background-color 0.3s, border-color 0.3s, color 0.3s;
+}
+
+.step-indicator-item.active .step-bubble {
   background-color: #3498db;
-  transition: width 0.3s ease;
+  border-color: #3498db;
+  color: white;
+}
+
+.step-indicator-item.done .step-bubble {
+  background-color: #27ae60;
+  border-color: #27ae60;
+  color: white;
+}
+
+.step-label {
+  margin-top: 6px;
+  font-size: 11px;
+  color: #aaa;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.step-indicator-item.active .step-label {
+  color: #3498db;
+  font-weight: 600;
+}
+
+.step-indicator-item.done .step-label {
+  color: #27ae60;
+}
+
+/* Clickable completed step bubbles */
+button.step-indicator-item {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+  z-index: 1;
+}
+
+button.step-indicator-item:hover .step-bubble {
+  background-color: #1e8449;
+  border-color: #1e8449;
+}
+
+button.step-indicator-item:hover .step-label {
+  text-decoration: underline;
+}
+
+/* PctAbsInput: align label and toggle on one line */
+.form-group label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+  font-weight: 500;
+  color: #2c3e50;
+}
+
+.form-group label .unit-toggle {
+  margin-left: auto;
 }
 
 .step {
@@ -815,6 +915,73 @@ select:focus {
 
 .assumptions-grid {
   padding: 16px;
+}
+
+.assumptions-subhead {
+  margin: 18px 0 8px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #2c3e50;
+  border-bottom: 1px solid #eef2f5;
+  padding-bottom: 4px;
+}
+
+.assumptions-grid > .assumptions-subhead:first-child {
+  margin-top: 4px;
+}
+
+.detail-tax-override {
+  margin-top: 16px;
+  padding-top: 4px;
+  border-top: 1px dashed #d6dee6;
+}
+
+.detail-tax-override .assumptions-subhead {
+  border-bottom: none;
+}
+
+/* Multi-year projection (collapsible) */
+.projection-section {
+  margin: 24px 0;
+  border: 1px solid #e1e8ed;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.projection-section .panel-toggle {
+  border-bottom: 1px solid #e1e8ed;
+}
+
+.projection-section .verdict-intro,
+.projection-section .tax-disclaimer {
+  padding: 0 16px;
+}
+
+.projection-section .verdict-intro {
+  margin-top: 14px;
+}
+
+.projection-table-wrap {
+  overflow-x: auto;
+  padding: 0 16px 4px;
+}
+
+.projection-table {
+  font-size: 13.5px;
+}
+
+.projection-table th.num,
+.projection-table td.num {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.projection-table td.positive {
+  color: #1e8e3e;
+}
+
+.projection-table td.negative {
+  color: #c0392b;
 }
 
 .portfolio-toolbar {

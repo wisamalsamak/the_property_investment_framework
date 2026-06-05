@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import InputWithLabel from './InputWithLabel';
 import Results from './Results';
 import { calculateResults, formatCurrency, formatPercent } from '../utils/calculations';
-import { STEUERKLASSEN } from '../utils/germanTax';
+import { STEUERKLASSEN, BUNDESLAENDER } from '../utils/germanTax';
 import {
   DEFAULT_ASSUMPTIONS,
   buildCalcInput,
@@ -107,7 +107,7 @@ const PctAbsField = ({
 // Inline, collapsible edit + KPI panel for a single apartment. All listing
 // fields are editable; because the parent recomputes `results` from the edited
 // listing on every change, every KPI shown here updates dynamically.
-const DetailPanel = ({ listing, results, score, empfehlung, onFieldChange, onFullAnalysis, onClose }) => {
+const DetailPanel = ({ listing, results, score, empfehlung, assumptions = {}, onFieldChange, onFullAnalysis, onClose }) => {
   const handle = (e) => onFieldChange(listing.id, e.target.name, e.target.value);
   const mieteEstimate = Math.round(results.kaltmiete);
   const hausgeldEstimate = Math.round(results.hausgeld);
@@ -246,6 +246,96 @@ const DetailPanel = ({ listing, results, score, empfehlung, onFieldChange, onFul
           </div>
           <div className="form-row">
             <InputWithLabel label="Expose-URL" name="url" type="text" value={listing.url ?? ''} onChange={handle} />
+          </div>
+
+          <div className="detail-tax-override">
+            <h4 className="assumptions-subhead">Steuerdaten (für diese Wohnung)</h4>
+            <p className="field-description">
+              Vorbelegt aus den globalen Annahmen. Leere Felder bzw. „(global)“
+              übernehmen den globalen Wert – nur überschreiben, wenn diese Wohnung
+              abweichen soll.
+            </p>
+            <div className="form-row">
+              <InputWithLabel
+                label="Bruttogehalt"
+                name="bruttoJahresgehalt"
+                value={listing.bruttoJahresgehalt ?? ''}
+                onChange={handle}
+                unit="€"
+                description={`Global: ${assumptions.bruttoJahresgehalt || '–'} €`}
+              />
+              <InputWithLabel
+                label="Zeitraum"
+                name="gehaltsperiode"
+                type="select"
+                value={listing.gehaltsperiode ?? ''}
+                onChange={handle}
+                options={[
+                  { value: '', label: `(global: ${assumptions.gehaltsperiode === 'jahr' ? 'pro Jahr' : 'pro Monat'})` },
+                  { value: 'jahr', label: 'pro Jahr' },
+                  { value: 'monat', label: 'pro Monat' }
+                ]}
+              />
+              <InputWithLabel
+                label="Steuerklasse"
+                name="steuerklasse"
+                type="select"
+                value={listing.steuerklasse ?? ''}
+                onChange={handle}
+                options={[{ value: '', label: '(global)' }, ...STEUERKLASSEN]}
+              />
+            </div>
+            <div className="form-row">
+              <InputWithLabel
+                label="Alter"
+                name="alter"
+                value={listing.alter ?? ''}
+                onChange={handle}
+                unit="Jahre"
+                description={`Global: ${assumptions.alter || '–'}`}
+              />
+              <InputWithLabel
+                label="Bundesland"
+                name="bundesland"
+                type="select"
+                value={listing.bundesland ?? ''}
+                onChange={handle}
+                options={[
+                  { value: '', label: `(global: ${assumptions.bundesland || 'Bayern'})` },
+                  ...BUNDESLAENDER.map((b) => ({ value: b, label: b }))
+                ]}
+              />
+              <InputWithLabel
+                label="Kinder"
+                name="kinder"
+                value={listing.kinder ?? ''}
+                onChange={handle}
+                description={`Global: ${assumptions.kinder ?? '0'}`}
+              />
+            </div>
+            <div className="form-row">
+              <InputWithLabel
+                label="KV-Zusatzbeitrag"
+                name="zusatzbeitrag"
+                value={listing.zusatzbeitrag ?? ''}
+                onChange={handle}
+                unit="%"
+                step="0.1"
+                description={`Global: ${assumptions.zusatzbeitrag ?? '2.5'} %`}
+              />
+              <InputWithLabel
+                label="Kirchensteuer"
+                name="kirchensteuerpflichtig"
+                type="select"
+                value={listing.kirchensteuerpflichtig ?? ''}
+                onChange={handle}
+                options={[
+                  { value: '', label: `(global: ${assumptions.kirchensteuerpflichtig ? 'ja' : 'nein'})` },
+                  { value: 'ja', label: 'ja' },
+                  { value: 'nein', label: 'nein' }
+                ]}
+              />
+            </div>
           </div>
         </div>
 
@@ -603,6 +693,12 @@ const Portfolio = () => {
               Änderungen werden <strong>sofort</strong> auf alle geladenen Wohnungen
               angewendet – kein erneutes „Live laden“ nötig.
             </p>
+
+            <h4 className="assumptions-subhead">Steuerdaten (global)</h4>
+            <p className="assumptions-hint">
+              Gelten für alle Wohnungen. Pro Wohnung lassen sie sich im
+              Detail-Panel bei Bedarf überschreiben.
+            </p>
             <div className="form-row">
               <InputWithLabel
                 label="Bruttogehalt"
@@ -631,6 +727,48 @@ const Portfolio = () => {
                 options={STEUERKLASSEN}
               />
             </div>
+            <div className="form-row">
+              <InputWithLabel
+                label="Alter"
+                name="alter"
+                value={assumptions.alter ?? ''}
+                onChange={handleAssumptionChange}
+                unit="Jahre"
+              />
+              <InputWithLabel
+                label="Bundesland"
+                name="bundesland"
+                type="select"
+                value={assumptions.bundesland || 'Bayern'}
+                onChange={handleAssumptionChange}
+                options={BUNDESLAENDER.map((b) => ({ value: b, label: b }))}
+              />
+              <InputWithLabel
+                label="Kinder"
+                name="kinder"
+                value={assumptions.kinder ?? '0'}
+                onChange={handleAssumptionChange}
+              />
+            </div>
+            <div className="form-row">
+              <InputWithLabel
+                label="KV-Zusatzbeitrag"
+                name="zusatzbeitrag"
+                value={assumptions.zusatzbeitrag ?? '2.5'}
+                onChange={handleAssumptionChange}
+                unit="%"
+                step="0.1"
+              />
+              <InputWithLabel
+                label="Kirchensteuerpflichtig"
+                name="kirchensteuerpflichtig"
+                type="checkbox"
+                checked={!!assumptions.kirchensteuerpflichtig}
+                onChange={handleAssumptionChange}
+              />
+            </div>
+
+            <h4 className="assumptions-subhead">Finanzierung &amp; Markt</h4>
             <div className="form-row">
               <div className="form-group pct-abs-field">
                 <label htmlFor="assumption-eigenkapital">
@@ -899,6 +1037,7 @@ const Portfolio = () => {
                       results={results}
                       score={score}
                       empfehlung={empfehlung}
+                      assumptions={assumptions}
                       onFieldChange={handleListingFieldChange}
                       onFullAnalysis={setDetailId}
                       onClose={() => setExpandedId(null)}

@@ -386,9 +386,18 @@ const initialListingsByCity = () =>
 // that otherwise only live in component memory.
 const STORAGE_KEY = 'portfolio-state-v1';
 
+// Only trust the cached portfolio when it was written by a guest (no owner) or
+// uses the legacy untagged format. A cache tagged with an owner belongs to a
+// signed-in account and must be reloaded from Supabase instead of leaking to
+// the next (possibly different) visitor.
 const loadPersisted = () => {
   try {
-    return JSON.parse(window.localStorage.getItem(STORAGE_KEY)) || {};
+    const parsed = JSON.parse(window.localStorage.getItem(STORAGE_KEY));
+    if (!parsed || typeof parsed !== 'object') return {};
+    if ('owner' in parsed) {
+      return parsed.owner ? {} : (parsed.state || {});
+    }
+    return parsed; // legacy untagged guest cache
   } catch {
     return {};
   }
@@ -440,17 +449,21 @@ const Portfolio = () => {
   const [proxyBase] = useState(persisted.proxyBase || DEFAULT_PROXY);
   const [liveLimit, setLiveLimit] = useState(persisted.liveLimit || 24);
 
-  // Persist the portfolio so other tabs (and reloads) can restore it.
+  // Persist the portfolio so other tabs (and reloads) can restore it. The cache
+  // is tagged with the current owner so it is never read back as guest data.
   useEffect(() => {
     try {
       window.localStorage.setItem(
         STORAGE_KEY,
-        JSON.stringify({ cityId, assumptions, listingsByCity, liveLoadedCities, proxyBase, liveLimit })
+        JSON.stringify({
+          owner: user?.id || null,
+          state: { cityId, assumptions, listingsByCity, liveLoadedCities, proxyBase, liveLimit }
+        })
       );
     } catch {
       /* storage full or unavailable – ignore */
     }
-  }, [cityId, assumptions, listingsByCity, liveLoadedCities, proxyBase, liveLimit]);
+  }, [user?.id, cityId, assumptions, listingsByCity, liveLoadedCities, proxyBase, liveLimit]);
 
   // ---- Cloud sync (Supabase) ---------------------------------------------
   // When a user is signed in, their portfolio is stored per-user in Supabase
@@ -460,6 +473,8 @@ const Portfolio = () => {
   // so loading a portfolio does not immediately write the same data back.
   const skipNextSaveRef = useRef(false);
   const saveTimerRef = useRef(null);
+  // Tracks the previous auth identity so we can detect a sign-out transition.
+  const prevUserIdRef = useRef(null);
 
   const applyRemoteBlob = (blob) => {
     if (!blob || typeof blob !== 'object') return;
@@ -475,8 +490,32 @@ const Portfolio = () => {
 
   // On login (or session restore): pull the user's saved portfolio. If they have
   // no row yet, seed it with whatever is currently on screen (their guest work).
+  // On sign-out: reset the portfolio to defaults so the next visitor never sees
+  // the previous account's data, and drop the local cache.
   useEffect(() => {
-    if (!user?.id) return;
+    const prevUserId = prevUserIdRef.current;
+    prevUserIdRef.current = user?.id || null;
+
+    if (!user?.id) {
+      // Only clear when actually leaving a signed-in session; a plain guest who
+      // never signed in keeps their own work.
+      if (prevUserId) {
+        skipNextSaveRef.current = true;
+        setCityId('muenchen');
+        setAssumptions(DEFAULT_ASSUMPTIONS);
+        setListingsByCity(initialListingsByCity());
+        setLiveLoadedCities({});
+        setLiveLimit(24);
+        setSyncState('idle');
+        try {
+          window.localStorage.removeItem(STORAGE_KEY);
+        } catch {
+          /* ignore */
+        }
+      }
+      return undefined;
+    }
+
     let active = true;
     setSyncState('loading');
     (async () => {

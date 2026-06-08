@@ -8,7 +8,7 @@ import {
   buildCalcInput,
   empfehlungForScore
 } from '../data/muenchenListings';
-import { CITIES, getCityById } from '../data/cities';
+import { CITIES } from '../data/cities';
 import { fetchLiveListings, fetchListingByUrl, DEFAULT_PROXY } from '../utils/immoweltProvider';
 import { useAuth } from '../lib/AuthContext';
 import { loadRemotePortfolio, saveRemotePortfolio } from '../lib/portfolioStore';
@@ -414,14 +414,60 @@ const readDeepLink = () => {
 const detailHref = (cityId, listingId) =>
   `?ansicht=portfolio&stadt=${encodeURIComponent(cityId)}&wohnung=${encodeURIComponent(listingId)}`;
 
+// Turn a free-text city name into the slug immowelt uses in its list URLs,
+// e.g. "Köln" -> "koeln", "Frankfurt am Main" -> "frankfurt-am-main".
+const slugifyCity = (name) =>
+  String(name)
+    .trim()
+    .toLowerCase()
+    .replace(/ä/g, 'ae')
+    .replace(/ö/g, 'oe')
+    .replace(/ü/g, 'ue')
+    .replace(/ß/g, 'ss')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+
+// Build a city object for a user-typed city so it can be loaded live from
+// immowelt just like the curated cities.
+const cityFromName = (rawName) => {
+  const name = String(rawName).trim().replace(/\s+/g, ' ');
+  const slug = slugifyCity(name);
+  return {
+    id: `custom-city-${slug}`,
+    name,
+    slug,
+    bundesland: '',
+    mietProQm: '',
+    immoweltUrl: `https://www.immowelt.de/liste/${slug}/wohnungen/kaufen`,
+    listings: [],
+    custom: true
+  };
+};
+
+// A short list of common German cities offered as type-ahead suggestions.
+const CITY_SUGGESTIONS = [
+  'Köln', 'Frankfurt am Main', 'Stuttgart', 'Düsseldorf', 'Nürnberg',
+  'Hannover', 'Bremen', 'Essen', 'Dortmund', 'Bonn', 'Karlsruhe',
+  'Mannheim', 'Augsburg', 'Wiesbaden', 'Münster', 'Freiburg', 'Kiel',
+  'Erfurt', 'Rostock', 'Potsdam', 'Heidelberg', 'Regensburg'
+];
+
 const Portfolio = () => {
   const { user } = useAuth();
   const [persisted] = useState(loadPersisted);
   const [deepLink] = useState(readDeepLink);
 
+  // User-added cities (typed by name, loaded live from immowelt) live alongside
+  // the curated CITIES list.
+  const [customCities, setCustomCities] = useState(persisted.customCities || []);
+  const [newCityName, setNewCityName] = useState('');
+
+  const knownCityIds = [...CITIES, ...(persisted.customCities || [])].map((c) => c.id);
   const initialCityId =
-    (deepLink.stadt && CITIES.some((c) => c.id === deepLink.stadt) && deepLink.stadt) ||
-    persisted.cityId ||
+    (deepLink.stadt && knownCityIds.includes(deepLink.stadt) && deepLink.stadt) ||
+    (persisted.cityId && knownCityIds.includes(persisted.cityId) && persisted.cityId) ||
     'muenchen';
 
   const [cityId, setCityId] = useState(initialCityId);
@@ -457,13 +503,13 @@ const Portfolio = () => {
         STORAGE_KEY,
         JSON.stringify({
           owner: user?.id || null,
-          state: { cityId, assumptions, listingsByCity, liveLoadedCities, proxyBase, liveLimit }
+          state: { cityId, assumptions, listingsByCity, liveLoadedCities, proxyBase, liveLimit, customCities }
         })
       );
     } catch {
       /* storage full or unavailable – ignore */
     }
-  }, [user?.id, cityId, assumptions, listingsByCity, liveLoadedCities, proxyBase, liveLimit]);
+  }, [user?.id, cityId, assumptions, listingsByCity, liveLoadedCities, proxyBase, liveLimit, customCities]);
 
   // ---- Cloud sync (Supabase) ---------------------------------------------
   // When a user is signed in, their portfolio is stored per-user in Supabase
@@ -486,6 +532,7 @@ const Portfolio = () => {
     }
     if (blob.liveLoadedCities) setLiveLoadedCities(blob.liveLoadedCities);
     if (blob.liveLimit) setLiveLimit(blob.liveLimit);
+    if (Array.isArray(blob.customCities)) setCustomCities(blob.customCities);
   };
 
   // On login (or session restore): pull the user's saved portfolio. If they have
@@ -506,6 +553,7 @@ const Portfolio = () => {
         setListingsByCity(initialListingsByCity());
         setLiveLoadedCities({});
         setLiveLimit(24);
+        setCustomCities([]);
         setSyncState('idle');
         try {
           window.localStorage.removeItem(STORAGE_KEY);
@@ -526,7 +574,7 @@ const Portfolio = () => {
           applyRemoteBlob(blob);
         } else {
           await saveRemotePortfolio(user.id, {
-            cityId, assumptions, listingsByCity, liveLoadedCities, proxyBase, liveLimit
+            cityId, assumptions, listingsByCity, liveLoadedCities, proxyBase, liveLimit, customCities
           });
         }
         if (active) setSyncState('saved');
@@ -553,7 +601,7 @@ const Portfolio = () => {
     saveTimerRef.current = setTimeout(async () => {
       try {
         await saveRemotePortfolio(user.id, {
-          cityId, assumptions, listingsByCity, liveLoadedCities, proxyBase, liveLimit
+          cityId, assumptions, listingsByCity, liveLoadedCities, proxyBase, liveLimit, customCities
         });
         setSyncState('saved');
       } catch {
@@ -564,7 +612,7 @@ const Portfolio = () => {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id, cityId, assumptions, listingsByCity, liveLoadedCities, liveLimit]);
+  }, [user?.id, cityId, assumptions, listingsByCity, liveLoadedCities, liveLimit, customCities]);
 
   // When opened via a deep link (new tab), scroll the expanded apartment row
   // into view so its detail panel is immediately visible.
@@ -576,7 +624,11 @@ const Portfolio = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const city = getCityById(cityId);
+  const allCities = useMemo(() => [...CITIES, ...customCities], [customCities]);
+  const city = useMemo(
+    () => allCities.find((c) => c.id === cityId) || CITIES[0],
+    [allCities, cityId]
+  );
   const listings = useMemo(() => listingsByCity[cityId] || [], [listingsByCity, cityId]);
 
   // Evaluate every listing of the current city with the current assumptions.
@@ -705,6 +757,67 @@ const Portfolio = () => {
     }
   };
 
+  // Add a city the user typed by name: build its immowelt source, switch to it
+  // and immediately try to pull live listings.
+  const handleAddCity = async (e) => {
+    if (e) e.preventDefault();
+    const name = newCityName.trim();
+    if (!name) return;
+    const newCity = cityFromName(name);
+    if (!newCity.slug) {
+      setLiveError('Bitte einen gültigen Städtenamen eingeben.');
+      return;
+    }
+    setNewCityName('');
+    setDetailId(null);
+    setLiveError(null);
+
+    // Already known (curated or previously added) → just switch to it.
+    const existing = allCities.find((c) => c.id === newCity.id);
+    if (existing) {
+      setCityId(existing.id);
+      return;
+    }
+
+    setCustomCities((prev) => [...prev, newCity]);
+    setCityId(newCity.id);
+
+    setLiveLoading(true);
+    try {
+      const live = await fetchLiveListings(newCity, { proxyBase, limit: Number(liveLimit) || 24 });
+      setListingsByCity((prev) => ({ ...prev, [newCity.id]: live }));
+      setLiveLoadedCities((prev) => ({ ...prev, [newCity.id]: true }));
+    } catch (err) {
+      setLiveError(
+        `${err.message || 'Live-Daten konnten nicht geladen werden.'} ` +
+          'Prüfe die Schreibweise der Stadt oder füge Wohnungen manuell hinzu.'
+      );
+      setListingsByCity((prev) => ({ ...prev, [newCity.id]: prev[newCity.id] || [] }));
+    } finally {
+      setLiveLoading(false);
+    }
+  };
+
+  // Remove a user-added city and its loaded listings.
+  const handleRemoveCity = () => {
+    if (!city.custom) return;
+    const removedId = cityId;
+    setCustomCities((prev) => prev.filter((c) => c.id !== removedId));
+    setListingsByCity((prev) => {
+      const next = { ...prev };
+      delete next[removedId];
+      return next;
+    });
+    setLiveLoadedCities((prev) => {
+      const next = { ...prev };
+      delete next[removedId];
+      return next;
+    });
+    setCityId('muenchen');
+    setDetailId(null);
+    setLiveError(null);
+  };
+
   // Detail view for a single flat reuses the full Results component.
   if (detailId) {
     const row = rows.find((r) => r.listing.id === detailId);
@@ -764,11 +877,36 @@ const Portfolio = () => {
               setLiveError(null);
             }}
           >
-            {CITIES.map((c) => (
-              <option key={c.id} value={c.id}>{c.name}</option>
+            {allCities.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}{c.custom ? ' (eigene)' : ''}
+              </option>
             ))}
           </select>
         </div>
+
+        <form className="city-add" onSubmit={handleAddCity}>
+          <label htmlFor="newCity">Stadt hinzufügen</label>
+          <div className="city-add-row">
+            <input
+              id="newCity"
+              type="text"
+              placeholder="z. B. Köln"
+              value={newCityName}
+              onChange={(e) => setNewCityName(e.target.value)}
+              list="city-suggestions"
+              autoComplete="off"
+            />
+            <button type="submit" disabled={liveLoading || !newCityName.trim()}>
+              + Hinzufügen
+            </button>
+          </div>
+          <datalist id="city-suggestions">
+            {CITY_SUGGESTIONS.map((name) => (
+              <option key={name} value={name} />
+            ))}
+          </datalist>
+        </form>
 
         <div className="live-count">
           <label htmlFor="liveLimit">Anzahl</label>
@@ -799,6 +937,11 @@ const Portfolio = () => {
           {isLive && (
             <button type="button" className="secondary" onClick={handleResetCity}>
               Zurücksetzen
+            </button>
+          )}
+          {city.custom && (
+            <button type="button" className="secondary" onClick={handleRemoveCity}>
+              Stadt entfernen
             </button>
           )}
         </div>
